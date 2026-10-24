@@ -29,6 +29,7 @@ import { activeGroup } from './ListView.jsx';
 import { INITIAL_STATUS_LABEL, inBook, initialOf, initialStatus, isInitialTarget } from '../store/initial.js';
 import InitialPrompt, { openInitialWith } from './InitialPrompt.jsx';
 import PrevPanel from './PrevPanel.jsx';
+import PhotoShots from './PhotoShots.jsx';
 import ReviewPanel from './ReviewPanel.jsx';
 
 const MODE_TEXT = { 'full+weak': '全景＋弱点写真', shared: '全景と共用', fullOnly: '全景だけ（写真で見えない弱点のみ）' };
@@ -122,7 +123,7 @@ function InitialBlock({ t, state, cfg, openInitial }) {
   );
 }
 
-export default function FormView({ state, update, config: cfg, toast, send }) {
+export default function FormView({ state, update, config: cfg, toast, send, getState }) {
   const [showAllChips, setShowAllChips] = useState(false);
   const [missingAsk, setMissingAsk] = useState(null); // 保存しようとしたときの未入力の一覧
   const [asking, setAsking] = useState(null); // 確かめ中のボタン { alertId, act }
@@ -646,7 +647,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
         <Alerts list={otherAlerts} onAct={onAct} asking={asking} onAsk={(a, act) => setAsking({ alertId: a.id, act })} onCancel={() => setAsking(null)} />
 
         <div className="sec">
-          <h2>写真（デジカメで撮影）</h2>
+          <h2>写真</h2>
           <div className="plan" data-testid="photo-plan">
             {plan.mode === 'pending'
               ? `${cfg.vigorLabel}などを入力すると、必要な写真を判定します`
@@ -668,6 +669,11 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
           </div>
         </div>
       </fieldset>
+
+      {/* 写真を撮る・見る（入力の欄の外に置く：事務の端末でも見られるように。撮るのは入力できる木だけ） */}
+      <div className="sec">
+        <PhotoShots t={t} plan={plan} state={state} update={update} getState={getState} config={cfg} toast={toast} send={send} canShoot={!readOnly} />
+      </div>
 
       {undo?.treeId === t.id && (
         <div className="alert info" data-testid="undo">

@@ -15,6 +15,7 @@ import { fieldSheetMarks, loadIndex } from '../store/previous.js';
 import { karteSpecs } from '../excel/karte.js';
 import { activeGroup } from './ListView.jsx';
 import { todayYmd } from './SettingsView.jsx';
+import PhotoOut from './PhotoOut.jsx';
 
 // ファイルを端末に保存（ダウンロード）する
 function download(filename, bytes) {
@@ -71,7 +72,7 @@ function cellText(t, k, v, cfg) {
   return v ?? '';
 }
 
-export default function OutView({ state, update, config: cfg, toast, send, sendStatus }) {
+export default function OutView({ state, update, config: cfg, toast, send, sendStatus, photoStatus, persisted }) {
   const [busy, setBusy] = useState('');
   const [check, setCheck] = useState(null); // { title, errors }
   const [gradeKept, setGradeKept] = useState([]); // 一覧表の出力で、健全度が既に入っていて書き換えなかった木
@@ -433,6 +434,8 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
           </>
         )}
       </div>
+
+      <PhotoOut state={state} config={cfg} group={group} photoStatus={photoStatus} persisted={persisted} toast={toast} yymmdd={yymmdd} />
 
       <div className="sec">
         <h2>一覧表形式：{gname}</h2>

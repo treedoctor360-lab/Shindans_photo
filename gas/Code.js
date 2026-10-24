@@ -9,6 +9,10 @@
 //    { action: 'pull', year, since }               … 通し番号 since より後に変わった記録を返す
 //    { action: 'putFile', kind, name, base64 }     … 設定・原本・台帳・前回の調査のファイルを置く（事務所のPCから）
 //    { action: 'getFile', kind }                   … 置いたファイルを取り出す（スマホから）
+//    { action: 'photoPut', year, photo, base64 }   … 撮った写真を1枚置く（同じ写真を送り直しても2枚にならない）
+//    { action: 'photoList', year, since }          … 通し番号 since より後に届いた・変わった写真の一覧（本体は含まない）
+//    { action: 'photoGet', id }                    … 写真の本体を取り出す
+//    { action: 'photoRetire', year, ids }          … 撮り直して使わなくなった写真に印を付ける（消さない）
 //  どの操作にも pass（合言葉）を付ける。合言葉はスクリプトのプロパティ PASSPHRASE に入れる。
 //
 //  記録（record）の種類
@@ -110,6 +114,80 @@ function listSince(rows, year, since) {
   return { records: out, lastSeq: maxSeq };
 }
 
+// ---------- 写真（計算だけの部分） ----------
+// シート「photos」に1枚1行。本体はドライブの「データ/写真/公園・路線」フォルダに置く
+// 列：0 写真の印 / 1 年度 / 2 通し番号 / 3 ファイルの印 / 4 大きさ / 5 撮り直し / 6 受信日時 / 7 データ（写真の記録）
+var PHOTO_SHEET = 'photos';
+var PHOTO_HEADER = ['写真の印', '年度', '通し番号', 'ファイルの印', '大きさ', '撮り直し', '受信日時', 'データ'];
+
+function maxPhotoSeq(rows) {
+  var m = 0;
+  rows.forEach(function (r) {
+    m = Math.max(m, Number(r[2]) || 0);
+  });
+  return m;
+}
+
+// 写真を置く前に：同じ印の写真が既にあれば、それを返す（送り直しで2枚にしないため）
+//  返す形：{ index, row }（既にある）または null
+function findPhoto(rows, id) {
+  for (var i = 0; i < rows.length; i++) if (String(rows[i][0]) === String(id)) return { index: i, row: rows[i] };
+  return null;
+}
+
+// 新しい写真の行
+function photoRow(rows, meta, year, fileId, bytes, now) {
+  return [String(meta.id), String(year), maxPhotoSeq(rows) + 1, String(fileId), Number(bytes) || 0, meta.retired ? '1' : '', now, JSON.stringify(meta)];
+}
+
+// 撮り直しの印を付ける計画。返す形：[{ index, row }]（既に印があるもの・知らない印は除く）
+function planPhotoRetire(rows, ids) {
+  var seq = maxPhotoSeq(rows);
+  var want = {};
+  (ids || []).forEach(function (id) {
+    want[String(id)] = true;
+  });
+  var out = [];
+  rows.forEach(function (r, i) {
+    if (!want[String(r[0])] || String(r[5]) === '1') return;
+    var row = r.slice();
+    row[5] = '1';
+    row[2] = ++seq; // 他の端末にも知らせるため、通し番号を進める
+    out.push({ index: i, row: row });
+  });
+  return out;
+}
+
+// 通し番号 since より後の写真の一覧
+function listPhotosSince(rows, year, since) {
+  var s = Number(since) || 0;
+  var out = [];
+  var last = s;
+  rows.forEach(function (r) {
+    if (String(r[1]) !== String(year)) return;
+    var seq = Number(r[2]) || 0;
+    if (seq <= s) return;
+    var meta = {};
+    try {
+      meta = JSON.parse(r[7] || '{}');
+    } catch (e) {
+      meta = {};
+    }
+    meta.id = String(r[0]);
+    meta.fileId = String(r[3]);
+    meta.seq = seq;
+    meta.retired = String(r[5]) === '1';
+    out.push(meta);
+    last = Math.max(last, seq);
+  });
+  return { photos: out, lastSeq: last };
+}
+
+// フォルダの名前に使えない文字を除く
+function safeName(s) {
+  return String(s || '').replace(/[\\/:*?"<>|]/g, '').trim();
+}
+
 // ---------- Google の機能を使う部分 ----------
 
 function doPost(e) {
@@ -143,6 +221,14 @@ function handle(req) {
   if (req.action === 'push') return withLock(function () { return push(req); });
   if (req.action === 'putFile') return withLock(function () { return putFile(req, props); });
   if (req.action === 'getFile') return getFile(req, props);
+  if (req.action === 'photoPut') return withLock(function () { return photoPut(req, props); });
+  if (req.action === 'photoList') {
+    if (!req.year) return { ok: false, error: '年度がありません' };
+    var pl = listPhotosSince(readPhotoRows(), req.year, req.since);
+    return { ok: true, photos: pl.photos, lastSeq: pl.lastSeq };
+  }
+  if (req.action === 'photoGet') return photoGet(req);
+  if (req.action === 'photoRetire') return withLock(function () { return photoRetire(req); });
   return { ok: false, error: '知らない操作です：' + req.action };
 }
 
@@ -260,5 +346,54 @@ function getFile(req, props) {
   };
 }
 
+// ---------- 写真（Google の機能を使う部分） ----------
+
+function readPhotoRows() {
+  var sh = sheetOf(PHOTO_SHEET, PHOTO_HEADER);
+  var n = sh.getLastRow() - 1;
+  return n > 0 ? sh.getRange(2, 1, n, PHOTO_HEADER.length).getValues() : [];
+}
+
+// 名前のフォルダを取り出す（なければ作る）
+function childFolder(parent, name) {
+  var it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : parent.createFolder(name);
+}
+
+function photoPut(req, props) {
+  var meta = req.photo || {};
+  if (!req.year || !meta.id || !req.base64) return { ok: false, error: '写真の内容が足りません' };
+  var rows = readPhotoRows();
+  var hit = findPhoto(rows, meta.id);
+  if (hit) {
+    // 前に届いていた（返事が途中で切れて、端末が送り直した）。2枚にせず、前の分を返す
+    return { ok: true, fileId: String(hit.row[3]), bytes: Number(hit.row[4]) || 0, seq: Number(hit.row[2]) || 0, again: true };
+  }
+  var bytes = Utilities.base64Decode(req.base64);
+  var folder = childFolder(childFolder(dataFolder(props), '写真'), safeName(meta.group) || '場所なし');
+  var file = folder.createFile(Utilities.newBlob(bytes, 'image/jpeg', safeName(meta.name) + '.jpg'));
+  var size = file.getSize();
+  var row = photoRow(rows, meta, req.year, file.getId(), size, new Date().toISOString());
+  var sh = sheetOf(PHOTO_SHEET, PHOTO_HEADER);
+  sh.getRange(sh.getLastRow() + 1, 1, 1, PHOTO_HEADER.length).setValues([row]);
+  return { ok: true, fileId: file.getId(), bytes: size, seq: row[2] };
+}
+
+function photoGet(req) {
+  var hit = findPhoto(readPhotoRows(), req.id);
+  if (!hit) return { ok: false, error: 'その写真はサーバーにありません' };
+  var file = DriveApp.getFileById(String(hit.row[3]));
+  return { ok: true, base64: Utilities.base64Encode(file.getBlob().getBytes()) };
+}
+
+function photoRetire(req) {
+  var rows = readPhotoRows();
+  var sh = sheetOf(PHOTO_SHEET, PHOTO_HEADER);
+  planPhotoRetire(rows, req.ids).forEach(function (u) {
+    sh.getRange(u.index + 2, 1, 1, PHOTO_HEADER.length).setValues([u.row]);
+  });
+  return { ok: true };
+}
+
 // テスト（Node）から計算部分を読めるようにする。Google の上では module が無いので何もしない
-if (typeof module !== 'undefined') module.exports = { planPush: planPush, listSince: listSince, isFileKind: isFileKind };
+if (typeof module !== 'undefined') module.exports = { planPush: planPush, listSince: listSince, isFileKind: isFileKind, findPhoto: findPhoto, photoRow: photoRow, planPhotoRetire: planPhotoRetire, listPhotosSince: listPhotosSince, safeName: safeName };
