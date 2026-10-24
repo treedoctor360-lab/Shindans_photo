@@ -1,0 +1,1366 @@
+{
+  "version": 6,
+  "job": {
+    "title": "架空の点検業務",
+    "year": 2099
+  },
+  "deadVigor": "枯",
+  "vigorLabel": "樹勢",
+  "gradeLabel": "健全度",
+  "options": {
+    "vigor": [
+      "良",
+      "並",
+      "枯"
+    ],
+    "lean": [
+      "無",
+      "有"
+    ],
+    "deadBranch": [
+      "無",
+      "少",
+      "有"
+    ],
+    "decay": [
+      "無",
+      "小",
+      "有"
+    ],
+    "fungus": [
+      "無",
+      "有"
+    ],
+    "grade": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "initialNeeded": [
+      "否",
+      "要"
+    ]
+  },
+  "calc": {
+    "multiStemFactor": 0.8,
+    "pi": 3.14,
+    "branchCap": 30,
+    "branchCapLabel": "30倍以上",
+    "deadLabel": "-"
+  },
+  "checks": [
+    {
+      "key": "lean",
+      "label": "傾斜"
+    },
+    {
+      "key": "deadBranch",
+      "label": "枯れ枝"
+    },
+    {
+      "key": "decay",
+      "label": "腐朽"
+    },
+    {
+      "key": "fungus",
+      "label": "キノコ"
+    }
+  ],
+  "details": [
+    {
+      "when": {
+        "field": "deadBranch",
+        "eq": "有"
+      },
+      "field": "deadBranchCount",
+      "label": "枯れ枝の本数",
+      "required": true,
+      "numeric": true
+    },
+    {
+      "when": {
+        "field": "fungus",
+        "eq": "有"
+      },
+      "field": "fungusName",
+      "label": "キノコの名前",
+      "chips": [
+        "ツヨイタケ",
+        "コワイタケ",
+        "不明"
+      ]
+    }
+  ],
+  "initial": {
+    "label": "詳しい診断の必要性",
+    "yes": "要",
+    "no": "否",
+    "waitLabel": "詳しい診断待ち",
+    "pill": "詳細"
+  },
+  "noteChips": [
+    {
+      "t": "枝が道にはみ出す",
+      "db": "はみ出し枝",
+      "kind": "n",
+      "photo": "はみ出し枝"
+    },
+    {
+      "t": "枝の偏り",
+      "kind": "n",
+      "was": [
+        "枝のかたより"
+      ]
+    },
+    {
+      "t": "根元の割れ",
+      "kind": "n",
+      "photo": "根元の割れ"
+    },
+    {
+      "t": "支柱が不要",
+      "db": "支柱は不要。",
+      "kind": "s",
+      "photo": "支柱"
+    },
+    {
+      "t": "叩くと音が変",
+      "kind": "s",
+      "fullOnly": true
+    },
+    {
+      "t": "比率超過だが剪定不要",
+      "db": "比率は超えているが剪定不要。",
+      "kind": "s"
+    },
+    {
+      "t": "つる巻き付き(切れる)",
+      "db": "つる巻き付き",
+      "kind": "n",
+      "photo": "つる"
+    },
+    {
+      "t": "つる巻き付き(切れない)",
+      "db": "つる巻き付き",
+      "kind": "n",
+      "photo": "つる"
+    }
+  ],
+  "dbNote": {
+    "nounJoin": "、",
+    "nounSuffix": "あり。"
+  },
+  "treat": {
+    "prune": [
+      "枯れ枝",
+      "縮小",
+      "はみ出し枝"
+    ],
+    "other": [
+      "伐採",
+      "支柱撤去",
+      "つる除去"
+    ],
+    "pruneSuffix": "剪定",
+    "join": "・"
+  },
+  "species": {
+    "list": [
+      "テストノキ",
+      "ミホンカエデ",
+      "カクウザクラ"
+    ],
+    "replace": {
+      "キュウメイノキ": "テストノキ"
+    }
+  },
+  "photo": {
+    "fullName": "全景",
+    "fullOrient": "縦",
+    "weakOrient": "横",
+    "maxWeak": 2,
+    "flagYes": "有",
+    "flagNo": "無",
+    "weak": [
+      {
+        "field": "deadBranch",
+        "eq": "有",
+        "name": "枯れ枝"
+      },
+      {
+        "field": "decay",
+        "eq": "有",
+        "name": "腐朽"
+      },
+      {
+        "field": "fungus",
+        "eq": "有",
+        "name": "キノコ"
+      }
+    ],
+    "shared": [
+      {
+        "field": "vigor",
+        "eq": "枯",
+        "name": "枯死"
+      },
+      {
+        "field": "lean",
+        "eq": "有",
+        "name": "傾斜"
+      }
+    ],
+    "fullOnly": [
+      {
+        "field": "decay",
+        "eq": "小"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "id": "treeNo",
+      "type": "treeNoPattern",
+      "level": "warn",
+      "pattern": "^[A-Z]{2}\\d{3}$",
+      "message": "番号の形がいつもと違います。"
+    },
+    {
+      "id": "noTag",
+      "type": "statusNotice",
+      "level": "info",
+      "status": "札なし",
+      "message": "番号札のない木です。"
+    },
+    {
+      "id": "maple",
+      "type": "speciesNotice",
+      "level": "info",
+      "pattern": "カエデ",
+      "unless": "ミホン",
+      "message": "{species}は種名まで記録します。"
+    },
+    {
+      "id": "ratio",
+      "type": "ratioAtLeast",
+      "level": "warn",
+      "items": [
+        {
+          "ratio": "height",
+          "threshold": 60,
+          "label": "樹高/幹径"
+        },
+        {
+          "ratio": "branch",
+          "threshold": 30,
+          "label": "枝長/枝径"
+        }
+      ],
+      "unlessTreat": "縮小",
+      "message": "{reasons}。縮小剪定を検討してください。",
+      "actions": [
+        {
+          "type": "addTreat",
+          "value": "縮小",
+          "label": "処置に縮小剪定を入れる"
+        },
+        {
+          "type": "addNote",
+          "value": "比率超過だが剪定不要",
+          "label": "剪定不要",
+          "dismiss": true
+        }
+      ]
+    },
+    {
+      "id": "strongFungus",
+      "type": "contains",
+      "level": "danger",
+      "when": {
+        "field": "fungus",
+        "eq": "有"
+      },
+      "field": "fungusName",
+      "anyOf": [
+        "ツヨイタケ",
+        "コワイタケ"
+      ],
+      "message": "{value}に注意してください。"
+    },
+    {
+      "id": "initialConflict",
+      "type": "conflict",
+      "level": "warn",
+      "when": {
+        "field": "initialNeeded",
+        "eq": "否"
+      },
+      "hits": [
+        {
+          "field": "fungus",
+          "eq": "有",
+          "label": "キノコあり"
+        },
+        {
+          "field": "decay",
+          "eq": "有",
+          "label": "腐朽あり"
+        }
+      ],
+      "message": "{hits}ですが、詳しい診断が「否」です。"
+    },
+    {
+      "id": "vineCut",
+      "type": "noteSuggestsTreat",
+      "level": "info",
+      "note": "つる巻き付き(切れる)",
+      "treat": "つる除去",
+      "message": "つるは切れるので、処置に入れられます。",
+      "actions": [
+        {
+          "type": "addTreat",
+          "value": "つる除去",
+          "label": "処置につる除去を入れる"
+        }
+      ]
+    },
+    {
+      "id": "noWater",
+      "type": "treatForbidden",
+      "level": "warn",
+      "pattern": "水やり",
+      "message": "「水やり」は処置に書きません。"
+    },
+    {
+      "id": "fellReason",
+      "type": "treatRequires",
+      "level": "danger",
+      "pattern": "伐採",
+      "field": "fellingReason",
+      "label": "伐採理由",
+      "message": "伐採の理由を入力してください。"
+    },
+    {
+      "id": "gradeTreat",
+      "type": "gradeNeedsTreat",
+      "level": "warn",
+      "grades": [
+        "D"
+      ],
+      "message": "健全度{grade}ですが処置が空欄です。"
+    },
+    {
+      "id": "photoOver",
+      "type": "photoOver",
+      "level": "warn",
+      "message": "弱点写真は{max}枚までです。"
+    }
+  ],
+  "dbFormat": {
+    "headerRow": 1,
+    "dataRow": 3,
+    "sheets": [
+      {
+        "type": "park",
+        "label": "公園",
+        "identify": "parkName",
+        "code": "parkCode"
+      },
+      {
+        "type": "street",
+        "label": "道路",
+        "identify": "routeName",
+        "code": "routeNo"
+      }
+    ],
+    "columns": {
+      "serial": "^連番",
+      "treeNo": "^木の番号$",
+      "parkCode": "^公園コード$",
+      "parkName": "^公園名$",
+      "routeNo": "^道路番号$",
+      "routeName": "^道路名$",
+      "place": "^場所$",
+      "date": "^調査日$",
+      "inspector": "^調査者$",
+      "species": "^樹種$",
+      "height": "^樹高$",
+      "girth": "^幹周$",
+      "heightRatio": "^樹高/幹径$",
+      "branchRatio": "^枝長/枝径$",
+      "vigor": "樹勢$",
+      "lean": "傾斜$",
+      "deadBranch": "枯れ枝$",
+      "decay": "腐朽$",
+      "fungus": "キノコ$",
+      "note": "特記",
+      "initialNeeded": "^詳しい診断",
+      "grade": "^健全度$",
+      "treat": "^処置$",
+      "fellingReason": "^伐採理由$",
+      "photo": "^写真$"
+    },
+    "infoKeys": [
+      "parkCode",
+      "parkName",
+      "routeNo",
+      "routeName",
+      "place"
+    ],
+    "doneKey": "vigor",
+    "serialKey": "serial",
+    "serialStatus": {
+      "残存": "残存"
+    },
+    "parenKeys": {
+      "deadBranch": {
+        "field": "deadBranchCount",
+        "strip": "本",
+        "when": "有",
+        "blank": "?"
+      },
+      "fungus": {
+        "field": "fungusName",
+        "when": "有",
+        "blank": "名前不明",
+        "alias": {
+          "不明": "名前不明"
+        }
+      }
+    },
+    "replace": {
+      "initialNeeded": {
+        "〇": "要"
+      }
+    },
+    "writeKeys": [
+      "date",
+      "inspector",
+      "species",
+      "height",
+      "girth",
+      "heightRatio",
+      "branchRatio",
+      "vigor",
+      "lean",
+      "deadBranch",
+      "decay",
+      "fungus",
+      "note",
+      "initialNeeded",
+      "grade",
+      "treat",
+      "fellingReason",
+      "photo"
+    ],
+    "heightRatioFormula": "ROUND(({height}/({girth}/3.14)),0)",
+    "newSerial": "追加",
+    "serialFor": {
+      "残存": "残存"
+    }
+  },
+  "fieldSheet": {
+    "rowsPerSheet": 3,
+    "firstRow": 4,
+    "rowsPerTree": 2,
+    "templateRows": 9,
+    "templateCols": 14,
+    "charPx": 8,
+    "defaultColWidth": 9,
+    "optionFontPt": 10,
+    "optionLinePt": 12.5,
+    "font": "MS Gothic",
+    "penColor": "FF1F3D99",
+    "prevLabel": "前回:",
+    "statusLabels": {
+      "残存": "残存",
+      "新規": "今回新規"
+    },
+    "header": {
+      "title": "B1",
+      "inspector": "H1",
+      "date": "K1",
+      "dateTemplate": "{y}年{m}月{d}日",
+      "eraOffset": 2000,
+      "defaultEraYear": 99,
+      "multiLabel": "行ごとに記載",
+      "multiDateSuffix": "ほか"
+    },
+    "cells": {
+      "treeNo": "A",
+      "species": "A",
+      "height": "B",
+      "girth": "C",
+      "branch": "D",
+      "note": "I",
+      "initial": "J",
+      "treat": "L",
+      "reason": "M"
+    },
+    "optionCols": [
+      {
+        "col": "E",
+        "field": "vigor",
+        "opts": [
+          {
+            "v": "良",
+            "lines": [
+              "良"
+            ]
+          },
+          {
+            "v": "並",
+            "lines": [
+              "並"
+            ]
+          },
+          {
+            "v": "枯",
+            "lines": [
+              "枯"
+            ]
+          }
+        ]
+      },
+      {
+        "col": "F",
+        "field": "deadBranch",
+        "opts": [
+          {
+            "v": "無",
+            "lines": [
+              "無"
+            ]
+          },
+          {
+            "v": "少",
+            "lines": [
+              "少"
+            ]
+          },
+          {
+            "v": "有",
+            "lines": [
+              "有",
+              "({deadBranchCount}本)"
+            ],
+            "blank": "　"
+          }
+        ]
+      },
+      {
+        "col": "G",
+        "field": "fungus",
+        "opts": [
+          {
+            "v": "無",
+            "lines": [
+              "無"
+            ]
+          },
+          {
+            "v": "有",
+            "lines": [
+              "有",
+              "({fungusName})"
+            ],
+            "blank": "　　",
+            "default": "不明",
+            "wrap": 3
+          }
+        ]
+      },
+      {
+        "col": "H",
+        "field": "lean",
+        "opts": [
+          {
+            "v": "無",
+            "lines": [
+              "無"
+            ]
+          },
+          {
+            "v": "有",
+            "lines": [
+              "有"
+            ]
+          }
+        ]
+      },
+      {
+        "col": "K",
+        "field": "grade",
+        "opts": [
+          {
+            "v": "A",
+            "lines": [
+              "A"
+            ]
+          },
+          {
+            "v": "B",
+            "lines": [
+              "B"
+            ]
+          },
+          {
+            "v": "C",
+            "lines": [
+              "C"
+            ]
+          },
+          {
+            "v": "D",
+            "lines": [
+              "D"
+            ]
+          }
+        ]
+      },
+      {
+        "col": "N",
+        "field": "photo",
+        "opts": [
+          {
+            "v": "無",
+            "lines": [
+              "無"
+            ]
+          },
+          {
+            "v": "有",
+            "lines": [
+              "有"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "statusOptions": [
+    {
+      "v": "",
+      "label": "台帳"
+    },
+    {
+      "v": "新規",
+      "label": "新規"
+    },
+    {
+      "v": "残存",
+      "label": "残存"
+    },
+    {
+      "v": "札なし",
+      "label": "札なし"
+    }
+  ],
+  "newTreeStatus": "新規",
+  "gradeText": {
+    "A": "とても良い",
+    "B": "良い",
+    "C": "ふつう",
+    "D": "悪い"
+  },
+  "gradeHint": "迷ったら一つ上の段階を選びます（架空の説明）",
+  "noteChipsShow": 4,
+  "treeNoPlaceholder": "AB123",
+  "previous": {
+    "label": "前回",
+    "kartes": [
+      {
+        "id": "detail",
+        "title": "前回の詳しい診断",
+        "match": "前回の詳しい診断",
+        "fields": {
+          "date": {
+            "label": "調べた日："
+          },
+          "inspector": {
+            "label": "調べた人："
+          },
+          "code": {
+            "label": [
+              "場所コード"
+            ]
+          },
+          "placeName": {
+            "label": [
+              "場所コード"
+            ],
+            "nth": 2
+          },
+          "treeNo": {
+            "label": "木の番号"
+          },
+          "species": {
+            "label": "木の種類"
+          }
+        },
+        "yesMark": "■有",
+        "parts": [
+          "枝",
+          "幹",
+          "根"
+        ],
+        "summary": [
+          {
+            "label": "見た目の評価",
+            "rows": 2
+          },
+          {
+            "label": "まとめ",
+            "rows": 1
+          }
+        ],
+        "photoCaptions": [
+          "全体の写真",
+          "弱点の図"
+        ],
+        "dropTexts": [
+          "飾り"
+        ],
+        "fieldSheetMark": "前回詳",
+        "info": [
+          {
+            "label": "調べた日：",
+            "title": "調べた日"
+          },
+          {
+            "label": "木の種類"
+          },
+          {
+            "label": "植えた年"
+          },
+          {
+            "label": "手入れ"
+          },
+          {
+            "label": "高さ",
+            "unit": "m"
+          }
+        ]
+      },
+      {
+        "id": "place",
+        "title": "周りの様子",
+        "match": "周りの様子",
+        "fields": {
+          "date": {
+            "label": "調べた日："
+          },
+          "code": {
+            "label": [
+              "場所コード"
+            ]
+          },
+          "placeName": {
+            "label": [
+              "場所コード"
+            ],
+            "nth": 2
+          },
+          "treeNo": {
+            "label": "木の番号"
+          }
+        },
+        "yesMark": "■有",
+        "parts": [
+          "まわり"
+        ],
+        "summary": [
+          {
+            "label": "土地の使われ方",
+            "rows": 1
+          }
+        ],
+        "photoCaptions": [
+          "配置の図",
+          "周りの写真"
+        ],
+        "captionBelow": true
+      }
+    ]
+  },
+  "initialSurvey": {
+    "label": "詳しい診断",
+    "inherit": {
+      "species": "species",
+      "place": "place",
+      "height": "height",
+      "girth": "@girth",
+      "branchRatio": {
+        "from": "@branchRatio",
+        "map": {
+          "30倍以上": "30≦"
+        }
+      },
+      "lean": {
+        "from": "lean",
+        "map": {
+          "有": "有（危険）"
+        }
+      }
+    },
+    "stamp": {
+      "date": [
+        "year",
+        "month",
+        "day"
+      ],
+      "inspector": "inspector"
+    },
+    "forms": {
+      "initial": {
+        "title": "詳しい診断",
+        "sections": [
+          {
+            "title": "樹木形状",
+            "items": [
+              {
+                "key": "height",
+                "label": "樹高",
+                "type": "number",
+                "unit": "m",
+                "row": "size"
+              },
+              {
+                "key": "girth",
+                "label": "幹周",
+                "type": "number",
+                "unit": "m",
+                "row": "size"
+              },
+              {
+                "key": "clearWalk",
+                "label": "枝下高（歩道）",
+                "type": "number",
+                "unit": "m",
+                "blank": "-",
+                "row": "solo"
+              },
+              {
+                "key": "branchRatio",
+                "label": "枝長/枝径",
+                "type": "text",
+                "desk": true
+              },
+              {
+                "key": "lean",
+                "label": "不自然な傾斜",
+                "type": "choice",
+                "options": [
+                  "無",
+                  "有（安全）",
+                  "有（危険）"
+                ]
+              }
+            ]
+          },
+          {
+            "title": "地上部の弱点・枝",
+            "none": true,
+            "items": [
+              {
+                "key": "b4",
+                "label": "枯れ枝",
+                "type": "weak",
+                "parts": [
+                  "count",
+                  "height",
+                  "branchDia",
+                  "branchLen"
+                ]
+              }
+            ]
+          },
+          {
+            "title": "総合評価（後で）",
+            "items": [
+              {
+                "key": "overall",
+                "label": "総合評価",
+                "type": "choice",
+                "options": [
+                  "A",
+                  "B",
+                  "C",
+                  "D",
+                  "E",
+                  "-"
+                ],
+                "desk": true
+              },
+              {
+                "key": "treatment",
+                "label": "改善的処置",
+                "type": "text"
+              }
+            ]
+          }
+        ]
+      },
+      "environment": {
+        "title": "周りの環境",
+        "sections": [
+          {
+            "title": "生育条件",
+            "none": true,
+            "items": [
+              {
+                "key": "weather",
+                "label": "気象の影響",
+                "type": "choice",
+                "options": [
+                  "無",
+                  "有"
+                ]
+              },
+              {
+                "key": "stake",
+                "label": "支柱の損傷",
+                "type": "choice",
+                "free": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "book": {
+      "doneKey": "treeNo",
+      "sheets": [
+        {
+          "form": "initial",
+          "siteType": "park",
+          "name": "^公園_詳しい診断$",
+          "headerRows": 4,
+          "dataRow": 5,
+          "columns": {
+            "serial": {
+              "col": "A",
+              "header": "^通し番号$"
+            },
+            "year": {
+              "col": "B",
+              "header": "^調査日/年$"
+            },
+            "month": {
+              "col": "C",
+              "header": "^月$"
+            },
+            "day": {
+              "col": "D",
+              "header": "^日$"
+            },
+            "inspector": {
+              "col": "E",
+              "header": "^調査者$"
+            },
+            "treeNo": {
+              "col": "F",
+              "header": "^基本情報/樹木番号$"
+            },
+            "parkCode": {
+              "col": "G",
+              "header": "^コード$"
+            },
+            "species": {
+              "col": "H",
+              "header": "^樹種名$"
+            },
+            "b4": {
+              "col": "I",
+              "header": "^地上部の弱点/枝/枯れ枝$"
+            },
+            "b4Grade": {
+              "col": "J"
+            },
+            "b4Detail": {
+              "col": "K"
+            },
+            "place": {
+              "col": "L"
+            },
+            "height": {
+              "col": "M"
+            },
+            "girth": {
+              "col": "N"
+            },
+            "branchRatio": {
+              "col": "O"
+            },
+            "lean": {
+              "col": "P"
+            }
+          }
+        },
+        {
+          "form": "environment",
+          "siteType": "park",
+          "name": "^公園_周りの環境$",
+          "headerRows": 3,
+          "dataRow": 4,
+          "columns": {
+            "treeNo": {
+              "col": "A",
+              "header": "^樹木番号$"
+            },
+            "parkCode": {
+              "col": "B",
+              "header": "^コード$"
+            },
+            "weather": {
+              "col": "C",
+              "header": "^生育条件/保護材/気象の影響$"
+            },
+            "stake": {
+              "col": "D",
+              "header": "^支柱の損傷$"
+            }
+          }
+        },
+        {
+          "form": "initial",
+          "siteType": "street",
+          "name": "^道路_詳しい診断$",
+          "headerRows": 4,
+          "dataRow": 5,
+          "columns": {
+            "treeNo": {
+              "col": "F",
+              "header": "樹木番号"
+            }
+          }
+        }
+      ]
+    },
+    "detailParts": {
+      "count": {
+        "type": "count",
+        "label": "本数"
+      },
+      "height": {
+        "type": "height",
+        "label": "高さ（地上）"
+      },
+      "size": {
+        "type": "size",
+        "label": "大きさ（縦×横）",
+        "places": "箇所"
+      },
+      "branchDia": {
+        "type": "number",
+        "label": "枝の直径",
+        "prefix": "枝直径",
+        "unit": "cm"
+      },
+      "branchLen": {
+        "type": "number",
+        "label": "枝の長さ",
+        "prefix": "枝長",
+        "unit": "m"
+      },
+      "ratio": {
+        "type": "choice",
+        "label": "周囲長比",
+        "prefix": "周囲長比",
+        "options": [
+          "＜1/3",
+          "≧1/3"
+        ]
+      },
+      "name": {
+        "type": "text",
+        "label": "種名など"
+      },
+      "core": {
+        "type": "flag",
+        "label": "芯達",
+        "text": "（芯達）"
+      }
+    },
+    "detailPartsDefault": [
+      "height",
+      "size",
+      "name"
+    ],
+    "gradeWriteBack": {
+      "from": "overall",
+      "values": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ],
+      "treatFrom": "treatment"
+    },
+    "karte": {
+      "mark": "確認用（提出不可）",
+      "sheets": [
+        {
+          "form": "initial",
+          "siteType": "park",
+          "sheet": "^公園_カルテ$",
+          "checks": {
+            "A1": "詳しい診断カルテ",
+            "A3": "樹高"
+          },
+          "cells": [
+            {
+              "cell": "E1",
+              "keys": [
+                "year",
+                "month",
+                "day"
+              ],
+              "join": "/"
+            },
+            {
+              "cell": "F1",
+              "key": "inspector"
+            },
+            {
+              "cell": "C2",
+              "key": "treeNo"
+            },
+            {
+              "cell": "C3",
+              "key": "height",
+              "num": true
+            },
+            {
+              "cell": "C4",
+              "key": "girth",
+              "num": true
+            },
+            {
+              "cell": "C6",
+              "key": "lean",
+              "boxes": "□無 □有",
+              "match": "first"
+            },
+            {
+              "cell": "E6",
+              "key": "lean",
+              "boxes": "□安全　□危険",
+              "match": "contains"
+            },
+            {
+              "cell": "C7",
+              "key": "b4",
+              "boxes": "□無 □有",
+              "match": "first",
+              "full": true
+            },
+            {
+              "cell": "E7",
+              "key": "b4Detail"
+            },
+            {
+              "cell": "C8",
+              "key": "overall",
+              "boxes": "□A □B □C □D □E",
+              "map": {
+                "-": ""
+              }
+            }
+          ],
+          "markCell": "A10"
+        },
+        {
+          "form": "environment",
+          "siteType": "park",
+          "sheet": "^公園_環境カルテ$",
+          "suffix": "_環境",
+          "checks": {
+            "A3": "気象"
+          },
+          "cells": [
+            {
+              "cell": "C2",
+              "key": "treeNo"
+            },
+            {
+              "cell": "C3",
+              "key": "weather",
+              "boxes": "□無 □有",
+              "match": "first"
+            },
+            {
+              "cell": "C4",
+              "key": "stake",
+              "boxes": "□無 □有",
+              "match": "first"
+            },
+            {
+              "cell": "E4",
+              "key": "stake",
+              "omit": [
+                "無",
+                "有"
+              ],
+              "pattern": "｜(.*)$"
+            }
+          ]
+        }
+      ]
+    },
+    "fromMeasures": [
+      {
+        "kind": "deadBranch",
+        "item": "b4",
+        "parts": {
+          "count": "count",
+          "height": "height",
+          "branchDia": "branchDia",
+          "branchLen": "branchLen"
+        }
+      }
+    ]
+  },
+  "noteMeasures": {
+    "places": [
+      "枝",
+      "幹",
+      "根株",
+      "根系"
+    ],
+    "line": "{place}の{kind}：{text}",
+    "parts": {
+      "height": {
+        "type": "height",
+        "label": "高さ（地上）"
+      },
+      "size": {
+        "type": "size",
+        "label": "大きさ（縦×横）",
+        "places": "箇所",
+        "unitEach": true
+      },
+      "size3": {
+        "type": "size",
+        "label": "大きさ（縦×横×奥行）",
+        "depth": true,
+        "unitEach": true
+      },
+      "circ": {
+        "type": "pair",
+        "label": "腐朽部分の周囲長／幹周",
+        "ratio": {
+          "num": 1,
+          "den": 3,
+          "lt": "＜1/3",
+          "ge": "≧1/3"
+        }
+      },
+      "rod": {
+        "type": "pair",
+        "label": "貫入深（水平）／貫入部幹直径",
+        "unit": "cm",
+        "circ": "貫入部の周囲長"
+      },
+      "core": {
+        "type": "flag",
+        "label": "芯達",
+        "text": "（芯達）",
+        "coreFrom": "rod"
+      },
+      "count": {
+        "type": "count",
+        "label": "本数"
+      },
+      "branchDia": {
+        "type": "number",
+        "label": "枝の直径",
+        "prefix": "枝直径",
+        "unit": "cm"
+      },
+      "branchLen": {
+        "type": "number",
+        "label": "枝の長さ",
+        "prefix": "枝長",
+        "unit": "m"
+      },
+      "max": {
+        "type": "flag",
+        "label": "最大のもの",
+        "text": "（最大）"
+      }
+    },
+    "kinds": [
+      {
+        "key": "decay",
+        "label": "腐朽",
+        "parts": [
+          "height",
+          "size",
+          "circ",
+          "core"
+        ]
+      },
+      {
+        "key": "rod",
+        "label": "鋼棒貫入",
+        "parts": [
+          "rod",
+          "core"
+        ]
+      },
+      {
+        "key": "tap",
+        "label": "打診音異常",
+        "parts": [
+          "height"
+        ]
+      },
+      {
+        "key": "deadBranch",
+        "label": "枯れ枝",
+        "places": [],
+        "line": "{kind}：{text}",
+        "prefill": {
+          "count": "deadBranchCount"
+        },
+        "parts": [
+          "count",
+          "height",
+          "branchDia",
+          "branchLen",
+          "max"
+        ]
+      }
+    ]
+  },
+  "wording": [
+    {
+      "from": "枯枝",
+      "to": "枯れ枝",
+      "label": "枯枝→枯れ枝"
+    },
+    {
+      "from": "([^有無]|^)有り?(?=$|[、。・,\\s）)])",
+      "to": "$1あり",
+      "label": "～有・～有り→～あり"
+    },
+    {
+      "from": "([^有]|^)無し?(?=$|[、。・,\\s）)])",
+      "to": "$1なし",
+      "label": "～無・～無し→～なし"
+    },
+    {
+      "from": "[ヵヶケかカ]所",
+      "to": "箇所",
+      "label": "～か所→～箇所"
+    },
+    {
+      "from": "枯れ枝(の)?(切断|除去)",
+      "to": "枯れ枝$1剪定",
+      "label": "枯れ枝の切断・除去→剪定"
+    }
+  ]
+}

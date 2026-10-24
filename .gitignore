@@ -1,0 +1,28 @@
+# 依存パッケージ・ビルド結果
+node_modules/
+dist/
+coverage/
+.vite/
+
+# 実データ・業務固有の設定は絶対に上げない（テスト用の架空データは test/fixtures/ にだけ置く）
+*.xlsx
+*.xlsm
+*.xls
+*.csv
+!test/fixtures/**
+config*.json
+!test/fixtures/**/*.json
+.env*
+
+# 公開前チェック用の禁止語リスト（業務固有の語を含むので上げない）
+.forbidden-words.txt
+
+# OS・エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 画面テストの結果
+test-results/
+playwright-report/

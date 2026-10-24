@@ -1,0 +1,64 @@
+# 自動テスト：GitHub に送る（push）たび・プルリクエストのたびに、GitHub のサーバーで実行する
+# main に取り込んだときだけ、テストが全部通ったら GitHub Pages に公開する（通らなければ公開しない）
+name: テストと公開
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリの取得
+        uses: actions/checkout@v4
+
+      - name: Node.js の準備
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 部品のインストール
+        run: npm ci
+
+      - name: 公開前の禁止語チェック
+        run: npm run check:words
+        env:
+          # 禁止語リストはシークレットに登録（リポジトリには置かない）
+          FORBIDDEN_WORDS: ${{ secrets.FORBIDDEN_WORDS }}
+
+      - name: 画面テスト用のブラウザの準備
+        run: npx playwright install --with-deps chromium
+
+      - name: テスト（計算・Excel の部品テストと、画面を自動で操作するテスト）
+        run: npm test
+
+      - name: ビルド（公開用ファイルを作る）
+        run: npm run build
+
+      - name: 公開用ファイルを次の段階に渡す（main のときだけ）
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  # 公開：上の「test」が全部通ったときだけ動く
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: GitHub Pages に公開
+        id: deployment
+        uses: actions/deploy-pages@v4
