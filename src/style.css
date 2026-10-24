@@ -313,3 +313,20 @@ fieldset.form-body:disabled button:not(.seg-b):not(.chip){opacity:.3}
 /* 入力画面の「前の木」「次の木」：ボタンの中に前後の樹木番号を小さく出す */
 .btn.nav-tree{display:inline-flex;flex-direction:column;align-items:center;line-height:1.2}
 .btn.nav-tree .nav-no{font-size:12px;color:var(--muted);font-weight:400;margin-top:2px}
+
+/* 写真（撮る写真の枠ごと） */
+.shots{display:flex;flex-direction:column;gap:8px}
+.shot{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--sunk)}
+.shot.done{background:var(--surface)}
+.shot-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.shot-name{font-family:var(--num);font-size:12px;color:var(--muted);word-break:break-all}
+.shot-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.shot-row label.btn{display:inline-flex;align-items:center;min-height:44px}
+.shot-thumb{padding:0;border:1px solid var(--line);border-radius:4px;background:none;line-height:0}
+.shot-thumb img{max-width:120px;max-height:120px;border-radius:4px}
+.tag.ok{color:var(--gA);border-color:var(--gA)}
+.tag.warn{color:var(--warn);border-color:var(--warn)}
+.warn-text{color:var(--warn)}
+.shot-view{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;padding:16px}
+.shot-view img{max-width:100%;max-height:80vh}
+.shot-view-cap{color:#fff;font-size:13px;margin-top:8px;text-align:center}

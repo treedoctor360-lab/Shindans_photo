@@ -5,7 +5,9 @@ import { monthDay, toHalf } from '../core/text.js';
 import { useState } from 'react';
 import { addTree } from '../store/actions.js';
 import { REVIEW_LABEL, confirmable, initialRecordOf, reviewState, reviewStatesOf, setConfirm } from '../store/review.js';
-import { INITIAL } from '../store/surveys.js';
+import { INITIAL, simpleKey } from '../store/surveys.js';
+import { photoPlan } from '../core/photo.js';
+import { shotStatus } from '../core/photoShots.js';
 import { prevOf } from '../store/previous.js';
 import { INITIAL_STATUS_LABEL, initialStatus, isInitialTarget } from '../store/initial.js';
 import { usePrevIndex } from './usePrevious.js';
@@ -280,6 +282,15 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
                     {monthDay(t.date)} {surnames(t.inspector)}
                   </span>
                 )}
+                {/* 写真：撮った枚数／撮る枚数（足りなければ色を付ける） */}
+                {t.source !== 'ledger' && t.done && !t.deleted && (() => {
+                  const ps = shotStatus(photoPlan(t, cfg), state.photos, simpleKey(t, cfg));
+                  return ps.need > 0 ? (
+                    <span className={`tag${ps.taken < ps.need ? ' w' : ''}`} data-testid="card-photo">
+                      写真 {ps.taken}/{ps.need}
+                    </span>
+                  ) : null;
+                })()}
                 {t.appBackup && <span className="tag w">アプリ入力の控えあり</span>}
                 {t.ledgerDuplicate > 0 && <span className="tag w">番号重複</span>}
                 {t.deleted && <span className="tag w">削除</span>}

@@ -15,6 +15,15 @@ describe('本番の野帳アプリと置き場所が混ざらない', () => {
     const name = read('src/store/idb.js').match(/const DB_NAME = '([^']+)'/)[1];
     expect(name).not.toBe('shindans');
   });
+  it('写真の置き場所も、本番・入力内容のデータベースと違う名前', () => {
+    const name = read('src/store/idb.js').match(/const DB_NAME = '([^']+)'/)[1];
+    const photo = read('src/store/photoDb.js').match(/export const PHOTO_DB_NAME = '([^']+)'/)[1];
+    expect(photo).not.toBe('shindans');
+    expect(photo).not.toBe(name);
+  });
+  it('写真の置き場所から写真を消す処理（delete）を使っていない（本体を外すのは送信済みのものだけ。photoDropFull）', () => {
+    expect(read('src/store/photoDb.js')).not.toMatch(/\.delete\(/);
+  });
   it('オフライン用の控えの名前が shindans- で始まらない', () => {
     const prefix = read('public/sw.js').match(/const PREFIX = '([^']+)'/)[1];
     expect(prefix.startsWith('shindans-')).toBe(false);

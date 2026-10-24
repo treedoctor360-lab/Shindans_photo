@@ -87,6 +87,7 @@ exports[`答え合わせ：確認の流れ > 付箋を付ける・返事をす�
     "initials": [],
     "karteTemplateInfo": null,
     "ledgerInfo": null,
+    "photos": [],
     "server": {
       "deviceId": "dev1",
       "lastSeq": 7,
@@ -739,6 +740,7 @@ exports[`答え合わせ：送受信 > 受け取った記録の当てはめ（�
     "initials": [],
     "karteTemplateInfo": null,
     "ledgerInfo": null,
+    "photos": [],
     "server": {
       "deviceId": "dev1",
       "lastSeq": 20,
@@ -1248,6 +1250,7 @@ exports[`答え合わせ：送受信 > 送った結果の当てはめ（成功�
     "initials": [],
     "karteTemplateInfo": null,
     "ledgerInfo": null,
+    "photos": [],
     "server": {
       "deviceId": "dev1",
       "lastSeq": 7,

@@ -33,6 +33,7 @@ export function initialState() {
     user: { role: 'surveyor', name: '' }, // この端末を使う人（'surveyor' 調査者 / 'office' 事務）
     stickies: {}, // 付箋（id → 付箋）
     confirms: {}, // 確定の印（木の鍵 → 印）
+    photos: [], // 撮った写真の記録（本体は photoDb.js の別のデータベース。core/photoShots.js）
   };
 }
 
@@ -84,6 +85,7 @@ export function migrate(s) {
     stickies: s.stickies || {},
     confirms: s.confirms || {},
     initials: Array.isArray(s.initials) ? s.initials : [],
+    photos: Array.isArray(s.photos) ? s.photos : [],
     server,
     stateVersion: STATE_VERSION,
   };

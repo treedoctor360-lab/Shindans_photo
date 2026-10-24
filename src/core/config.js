@@ -93,6 +93,14 @@ export function validateConfig(cfg) {
     need(isArr(p.weak) && p.weak.every((x) => isCond(x) && isStr(x.name)), 'photo.weak の形が違います');
     need(isArr(p.shared) && p.shared.every((x) => isCond(x) && isStr(x.name)), 'photo.shared の形が違います');
     need(isArr(p.fullOnly) && p.fullOnly.every(isCond), 'photo.fullOnly の形が違います');
+    // camera（省略可）：撮った写真の大きさ・ファイル名・端末に残す量
+    if (p.camera !== undefined) {
+      const c = p.camera;
+      need(
+        isObj(c) && ['long', 'short', 'maxKB', 'localMB'].every((k) => c[k] === undefined || (isNum(c[k]) && c[k] > 0)) && (c.fileName === undefined || isStr(c.fileName)),
+        'photo.camera の long・short・maxKB・localMB は正の数、fileName は文字にしてください',
+      );
+    }
   }
 
   if (need(isArr(cfg.rules), 'rules（判定支援の規則）がありません')) {

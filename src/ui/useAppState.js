@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { initialState, loadAll, saveState } from '../store/state.js';
 import { applyPull, applyPush, pull, push, rejectedMessage, unsentCount } from '../store/sync.js';
+import { recoverPhotos, requestPersist, syncPhotos } from '../store/photos.js';
 
 export function useAppState() {
   const [state, setState] = useState(initialState);
@@ -73,6 +74,9 @@ export function useAppState() {
   const syncing = useRef(false);
   const again = useRef(false); // やり取りの最中に頼まれたら、終わってからもう一度行う
   const [sendStatus, setSendStatus] = useState({ busy: false, error: '', last: null });
+  // 写真の送受信の結果（入力内容の送受信とは別に知らせる。写真で失敗しても入力内容の送受信は済んでいる）
+  const [photoStatus, setPhotoStatus] = useState({ busy: false, error: '', sent: 0 });
+  const getState = useCallback(() => latest.current, []);
   const send = useCallback(async () => {
     const cfg = configRef.current;
     if (!cfg || !latest.current.server?.url) return null;
@@ -107,6 +111,14 @@ export function useAppState() {
       const last = { saved, conflicts: [...conflicts, ...got.conflicts], changedTrees: got.changedTrees, newStickies: got.newStickies };
       // サーバーに断られた記録があれば、どれが・なぜかを知らせる（その記録は未送信のまま残る）
       setSendStatus({ busy: false, error: rejectedMessage(rejected), last });
+      // 写真は入力内容の後に送る（写真の失敗が、入力内容の送受信を止めないように）
+      setPhotoStatus((x) => ({ ...x, busy: true }));
+      try {
+        const ph = await syncPhotos({ getState, update, cfg });
+        setPhotoStatus({ busy: false, error: '', sent: ph.sent });
+      } catch (e) {
+        setPhotoStatus({ busy: false, error: e.message || '写真を送れませんでした', sent: 0 });
+      }
       return last;
     } catch (e) {
       setSendStatus((x) => ({ ...x, busy: false, error: e.message || '送信できませんでした' }));
@@ -118,11 +130,19 @@ export function useAppState() {
         setTimeout(() => sendRef.current?.(), 0);
       }
     }
-  }, [flush, update]);
+  }, [flush, update, getState]);
   const sendRef = useRef(null);
   sendRef.current = send;
 
   // 起動時・電波が戻ったとき・画面に戻ってきたときにやり取りする
+  // 起動時：写真の記録の救い（写真を置いたのに記録が保存できなかったもの）と、データを勝手に消さないようにする申し出
+  const [persisted, setPersisted] = useState(null);
+  useEffect(() => {
+    if (!ready) return;
+    recoverPhotos({ getState, update }).catch(() => 0);
+    requestPersist().then(setPersisted);
+  }, [ready, getState, update]);
+
   useEffect(() => {
     if (!ready) return undefined;
     send();
@@ -137,5 +157,5 @@ export function useAppState() {
     };
   }, [ready, send]);
 
-  return { state, update, config, setConfig, ready, saveError, send, sendStatus };
+  return { state, update, config, setConfig, ready, saveError, send, sendStatus, photoStatus, getState, persisted };
 }
