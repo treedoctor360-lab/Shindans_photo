@@ -2,7 +2,7 @@
 
 樹木点検の野帳入力アプリに、写真（カメラ）の機能を足した**試作版**です。元は [shindans](https://github.com/treedoctor360/shindans) の写しです。
 
-- アプリ：https://treedoctor360.github.io/Shindans_photo/ （スマホでは「ホーム画面に追加」すると、電波がなくても開けます）
+- アプリ：https://treedoctor360-lab.github.io/Shindans_photo/ （スマホでは「ホーム画面に追加」すると、電波がなくても開けます）
 - 本番の野帳アプリとは、端末内の保存場所・サーバー（GAS）を分けて使います（入力内容が混ざらないように）。
 - 使うには、設定ファイル・野帳の原本・台帳とサーバー（`gas/`）が必要です。これらはリポジトリには含めていません。
 
