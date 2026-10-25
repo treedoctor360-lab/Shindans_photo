@@ -120,3 +120,72 @@ test('撮った写真は端末に残り、撮り直しても前の写真を消�
   expect(names.every((n) => /^写真\/[^/]+\/AB002(全景|枯れ枝)990506\.jpg$/.test(n))).toBe(true);
   expect(dl.suggestedFilename()).toMatch(/^写真_.+\.zip$/);
 });
+
+test('アルバムから選べる。枠にない写真も名前を付けて足せ（数には入れない）、「使わない」にしても消さない。ZIP には使っている写真だけ入る', async ({ page }) => {
+  await page.goto('./');
+  await page.fill('#s-date', '2099-05-06');
+  await page.fill('#s-insp', '試験 二郎(資格)');
+  await page.setInputFiles('[data-testid=config-file]', 'test/fixtures/sample-config.json');
+  await page.setInputFiles('[data-testid=ledger-file]', tmp('pa-ledger.xlsx', await makeLedger()));
+  await expect(page.locator('[data-testid=ledger-status] .ok')).toBeVisible();
+  await page.click('.tab:has-text("一覧")');
+  await page.click('[data-tree=AB002]');
+  await page.fill('#f-height', '10');
+  await page.fill('#f-girth0', '0.5');
+  for (const [g, v] of [['vigor', '並'], ['lean', '無'], ['deadBranch', '有'], ['decay', '無'], ['fungus', '無'], ['initialNeeded', '否'], ['grade', 'B']])
+    await page.click(`[data-group=${g}] [data-v="${v}"]`);
+  await page.fill('#f-deadBranchCount', '2');
+
+  // 撮る写真の枠：カメラ（data-shot）にだけ capture があり、アルバム（data-album）には無い
+  await expect(page.locator('[data-shot=full]')).toHaveAttribute('capture', 'environment');
+  await expect(page.locator('[data-album=full]')).not.toHaveAttribute('capture', /.*/);
+  // アルバムから選ぶ → 撮ったときと同じ名前・同じ大きさ
+  await page.setInputFiles('[data-album=full]', png('al.png', 900, 1200, [20, 120, 40]));
+  await expect(page.locator('.toast')).toContainText('全景を保存しました');
+  await expect(page.locator('[data-slot=full] .shot-name')).toHaveText('AB002全景990506.jpg');
+  await page.click('[data-slot=full] [data-testid=shot-thumb]');
+  await expect(page.locator('[data-testid=shot-view]')).toContainText('480×640');
+  await expect(page.locator('[data-testid=shot-view]')).toContainText('アルバムから（撮影 日時不明）'); // PNG には撮影日時がない
+  await page.click('[data-testid=shot-view]');
+  await page.setInputFiles('[data-shot="w:枯れ枝"]', png('cm.png', 1600, 1200, [200, 60, 20]));
+  await expect(page.locator('[data-testid=shot-progress]')).toContainText('2／2');
+
+  // 任意の写真：名前を入れるまでは選べない
+  const free = page.locator('[data-testid=shot-free]');
+  await expect(free.locator('[data-shot=free]')).toHaveCount(0);
+  await page.fill('[data-testid=free-name]', '根元の様子');
+  await page.setInputFiles('[data-shot=free]', png('f1.png', 1600, 1200, [90, 90, 20]));
+  await expect(page.locator('.toast')).toContainText('根元の様子を保存しました');
+  await expect(page.locator('[data-testid=free-name]')).toHaveValue(''); // 保存したら名前を空に戻す
+  await page.fill('[data-testid=free-name]', '支柱');
+  await page.setInputFiles('[data-album=free]', png('f2.png', 900, 1200, [20, 20, 160]));
+  await expect(free.locator('[data-free]')).toHaveCount(2);
+  await expect(free.locator('[data-free=支柱] .shot-name')).toContainText('AB002支柱990506.jpg');
+  // 数には入れない
+  await expect(page.locator('[data-testid=shot-progress]')).toContainText('2／2');
+
+  // 「使わない」：確かめてから外す（消さずに残す）
+  await free.locator('[data-free=支柱] [data-testid=free-retire]').click();
+  await free.locator('[data-free=支柱] [data-testid=free-retire-ok]').click();
+  await expect(free.locator('[data-free]')).toHaveCount(1);
+  await page.click('text=保存して次の木へ');
+
+  // 開き直しても残っている
+  await page.reload();
+  await page.click('.tab:has-text("一覧")');
+  await expect(page.locator('[data-tree=AB002] [data-testid=card-photo]')).toHaveText('写真 2/2');
+  await page.click('[data-tree=AB002]');
+  await expect(page.locator('[data-testid=shot-free] [data-free=根元の様子] [data-testid=shot-thumb] img')).toBeVisible();
+
+  // ZIP：撮る写真の枠2枚＋使っている任意の写真1枚（使わない写真は入れない）
+  await page.click('.tab:has-text("出力")');
+  await expect(page.locator('[data-testid=photo-status]')).toContainText('撮った写真 3枚');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=photo-zip]')]);
+  await expect(page.locator('[data-testid=photo-report]')).toContainText('検査して保存しました');
+  const zip = await JSZip.loadAsync(fs.readFileSync(await dl.path()));
+  const names = Object.keys(zip.files)
+    .filter((n) => !zip.files[n].dir)
+    .map((n) => n.split('/').pop())
+    .sort();
+  expect(names).toEqual(['AB002全景990506.jpg', 'AB002枯れ枝990506.jpg', 'AB002根元の様子990506.jpg'].sort());
+});
