@@ -381,3 +381,21 @@ describe('【再発防止】外部リンク（別のブックを指す名前付�
     expect((await verifyDb(broken, buf, [], cfg)).join('\n')).toMatch(/外部リンク/);
   });
 });
+
+describe('【再現】読み込み直した台帳で番号が変わった木（前の番号 → 別の番号）', () => {
+  it('出力の知らせに、どの公園・路線の木か（場所の名前・樹種）と、番号が変わった可能性を出す', async () => {
+    const { buf, trees } = await setup();
+    // AB002 をアプリで入力した後、台帳の AB002 の番号が AB009 に直された
+    const entered = trees.map((t) => (t.treeNo === 'ＡＢ００２' || t.treeNo === 'AB002' ? { ...t, ...entry, source: 'app' } : t));
+    const wb = await load(buf);
+    wb.getWorksheet('公園').getCell('D4').value = 'AB009';
+    const buf2 = await wb.xlsx.writeBuffer();
+    const { rows } = await readLedger(buf2, cfg);
+    const { trees: again } = mergeLedger(entered, rows, cfg);
+    const gone = again.find((t) => t.ledgerGone);
+    expect(gone).toMatchObject({ source: 'app', parkName: '架空公園' });
+    const r = await exportDb(buf2, again, cfg);
+    expect(r.buffer).toBeFalsy();
+    expect(r.errors.join('\n')).toMatch(/AB002（架空公園・ミホンカエデ）：読み込んだときにあった行が、一覧表に見つかりません（読み込み直した一覧表にこの番号がありません/);
+  });
+});

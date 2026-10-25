@@ -111,6 +111,8 @@ export async function exportDb(ledgerBuffer, trees, cfg) {
     for (const t of mine.filter((x) => x.siteType === spec.type)) {
       const no = half(t.treeNo);
       const label = t.dupIndex > 1 ? `${no}（${t.dupIndex}本目）` : no;
+      // 知らせの文に出す木の名前（どの公園・路線の木か分かるように、場所の名前も付ける）
+      const where = `${label}（${t[spec.identify] || '場所なし'}・${t.species || '樹種なし'}）`;
       // 台帳から読み込んだ木は「番号＋何本目か」の行。
       // 追加した木は、同じ番号で場所の名前も合う行（前に書き戻して足した行）。なければ末尾に足す
       //  （現地の番号札が、台帳では別の場所の木の番号だったとき、その行に書かないため）
@@ -121,12 +123,12 @@ export async function exportDb(ledgerBuffer, trees, cfg) {
         // 行の取り違えを防ぐ照合
         const place = half(cellValue(row.getCell(map[spec.identify])));
         if (place !== half(t[spec.identify])) {
-          errors.push(`${ws.name} ${label}：一覧表の${r}行目の場所「${place}」が、アプリの「${t[spec.identify] || ''}」と違います`);
+          errors.push(`${ws.name} ${where}：一覧表の${r}行目の場所「${place}」が、アプリの「${t[spec.identify] || ''}」と違います`);
           continue;
         }
         const sp = map.species ? half(cellValue(row.getCell(map.species))) : '';
         if (t.ledgerSpecies != null && map.species && sp !== half(t.ledgerSpecies)) {
-          errors.push(`${ws.name} ${label}：一覧表の${r}行目の樹種「${sp}」が、読み込んだときの「${t.ledgerSpecies}」と違います`);
+          errors.push(`${ws.name} ${where}：一覧表の${r}行目の樹種「${sp}」が、読み込んだときの「${t.ledgerSpecies}」と違います`);
           continue;
         }
         if (t.source !== 'app' || half(cellValue(row.getCell(map[f.doneKey])))) {
@@ -147,7 +149,9 @@ export async function exportDb(ledgerBuffer, trees, cfg) {
         stats.written++;
       } else {
         if (t.source !== 'app' || t.dupIndex > 1 || t.ledgerRow) {
-          errors.push(`${ws.name} ${label}：読み込んだときにあった行が、一覧表に見つかりません`);
+          errors.push(
+            `${ws.name} ${where}：読み込んだときにあった行が、一覧表に見つかりません${t.ledgerGone ? '（読み込み直した一覧表にこの番号がありません。番号が変わったか、行が消されています。一覧の検索で「すべての公園・路線」を選んで探せます）' : ''}`,
+          );
           continue;
         }
         r = ++next;

@@ -46,3 +46,31 @@ test('番号の一部・ひらがなの樹種で探せる。ほかの公園・�
   await expect(page.locator('[data-testid=search-note]')).toHaveCount(0);
   await expect(page.locator('[data-filter=all]')).toBeVisible();
 });
+
+test('探す範囲で「すべての公園・路線」を選ぶと、どの公園・路線の木か分かる形で上にまとめて出る', async ({ page }) => {
+  await page.goto('./');
+  await page.setInputFiles('[data-testid=config-file]', 'test/fixtures/sample-config.json');
+  await page.setInputFiles('[data-testid=ledger-file]', tmp('s2-ledger.xlsx', await makeLedger()));
+  await expect(page.locator('[data-testid=ledger-status] .ok')).toBeVisible();
+  await page.click('.tab:has-text("一覧")');
+
+  await page.fill('[data-testid=list-search]', 'ab001');
+  // この公園・路線だけ（ほかは下に）
+  await expect(page.locator('[data-scope=group]')).toHaveClass(/on/);
+  const here = await page.locator('[data-testid=tree-cards] .card').count();
+  // すべての公園・路線
+  await page.click('[data-scope=all]');
+  await expect(page.locator('[data-scope=all]')).toHaveClass(/on/);
+  await expect(page.locator('[data-testid=search-elsewhere]')).toHaveCount(0);
+  const cards = page.locator('[data-testid=tree-cards] .card');
+  expect(await cards.count()).toBeGreaterThan(here);
+  await expect(page.locator('[data-testid=search-note]')).toContainText('すべての公園・路線で');
+  await expect(cards.filter({ hasText: '別の樹種' }).locator('[data-testid=card-group]')).toContainText('別の架空公園');
+  // 押すと、その木の公園・路線に切り替わって開く
+  await cards.filter({ hasText: '別の樹種' }).click();
+  await expect(page.locator('#f-species')).toHaveValue('別の樹種');
+  await page.click('.tab:has-text("一覧")');
+  await expect(page.locator('#s-group option:checked')).toContainText('別の架空公園');
+  // 範囲の選択は残る（次に探すときも、すべての公園・路線）
+  await expect(page.locator('[data-scope=all]')).toHaveClass(/on/);
+});

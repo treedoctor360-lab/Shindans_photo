@@ -80,6 +80,8 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
   const searching = !!query;
   // ほかの公園・路線で見つかった木（押すとその公園・路線に切り替えて開く）
   const elsewhere = searching ? state.trees.filter((t) => !t.deleted && groupKey(t, cfg) !== group && matchTree(t, query)) : [];
+  // 探す範囲：'group'（この公園・路線。ほかで見つかった木は下に出す）/ 'all'（すべての公園・路線をまとめて上に出す）
+  const scopeAll = searching && state.listScope === 'all';
   const filtered = (filter === 'deleted' ? deleted : all)
     .filter(inArea)
     .filter(
@@ -90,7 +92,8 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
         (filter === 'wait' && treeState(t, cfg) === 'wait') ||
         rsHas(t, filter),
     );
-  const list = searching ? all.filter((t) => matchTree(t, query)) : filtered;
+  const hereHits = searching ? all.filter((t) => matchTree(t, query)) : [];
+  const list = scopeAll ? [...hereHits, ...elsewhere] : searching ? hereHits : filtered;
   const useReview = !!state.server?.url;
   const role = state.user?.role || 'surveyor';
   const bulk = role === 'office' ? confirmable(all.filter(inArea), state, cfg) : [];
@@ -190,9 +193,20 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
         )}
       </div>
       {searching && (
-        <p className="hint" data-testid="search-note">
-          「{query}」で探しています：この公園・路線で{list.length}本（区画・状態の絞り込みは外しています）
-        </p>
+        <>
+          {/* 探す範囲を選ぶ（どの公園・路線の木か分からないときは「すべて」） */}
+          <div className="filters" data-testid="search-scope">
+            <button type="button" className={`chip${scopeAll ? '' : ' on'}`} onClick={() => set({ listScope: 'group' })} data-scope="group">
+              この公園・路線（{hereHits.length}本）
+            </button>
+            <button type="button" className={`chip${scopeAll ? ' on' : ''}`} onClick={() => set({ listScope: 'all' })} data-scope="all">
+              すべての公園・路線（{hereHits.length + elsewhere.length}本）
+            </button>
+          </div>
+          <p className="hint" data-testid="search-note">
+            「{query}」で探しています：{scopeAll ? `すべての公園・路線で${list.length}本` : `この公園・路線で${list.length}本`}（区画・状態の絞り込みは外しています）
+          </p>
+        </>
       )}
 
       {!searching && areas.length > 1 && (
@@ -254,7 +268,7 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
           const st = treeState(t, cfg);
           const nWarn = t.done && t.source !== 'ledger' ? alertsOf(t, cfg).filter((a) => a.lv !== 'info').length : 0;
           return (
-            <button key={t.id} type="button" className="card" onClick={() => open(t.id)} data-tree={toHalf(t.treeNo)}>
+            <button key={t.id} type="button" className="card" onClick={() => open(t.id, groupKey(t, cfg))} data-tree={toHalf(t.treeNo)}>
               {st === 'todo' ? (
                 <span className="pill none">未</span>
               ) : st === 'wait' ? (
@@ -268,6 +282,15 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
                 <span className="no">{t.treeNo || '(番号なし)'}</span>
                 <br />
                 <span className="sp">{t.species || '樹種未入力'}</span>
+                {/* すべての公園・路線で探したときは、どの公園・路線の木かを樹種の下に出す */}
+                {scopeAll && (
+                  <>
+                    <br />
+                    <small className="hint" data-testid="card-group">
+                      {groupLabel(state.trees, groupKey(t, cfg), cfg)}
+                    </small>
+                  </>
+                )}
               </span>
               <span className="tags">
                 {t.area && <span className="tag">{t.area}</span>}
@@ -317,7 +340,7 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
         })}
         {!list.length && <p className="hint">該当する木はありません。</p>}
       </div>
-      {elsewhere.length > 0 && (
+      {!scopeAll && elsewhere.length > 0 && (
         <div className="sec" data-testid="search-elsewhere">
           <h2>ほかの公園・路線で見つかった木（{elsewhere.length}本）</h2>
           <div className="cards">

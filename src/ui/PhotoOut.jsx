@@ -1,11 +1,11 @@
 // 出力画面の「写真」：送信の状態と、納品の形（公園・路線ごとのフォルダ）の ZIP 出力
-//  ZIP に入れるのは、各木の「撮る写真」の枠の、撮り直していない最新の1枚だけ
+//  ZIP に入れるのは、各木の「撮る写真」の枠の、撮り直していない最新の1枚と、使っている任意の写真
 //  ZIP を作った後に読み直して、入れた写真の名前・大きさ・中身が元と同じことを確かめる（違えば保存しない）
 import { useState } from 'react';
 import JSZip from 'jszip';
 import { groupLabel, groupKeys, treesOfGroup } from '../core/groups.js';
 import { photoPlan } from '../core/photo.js';
-import { currentPhotos, sizeText, unsentPhotos } from '../core/photoShots.js';
+import { currentPhotos, extraPhotos, sizeText, unsentPhotos } from '../core/photoShots.js';
 import { toHalf } from '../core/text.js';
 import { photoBytes } from '../store/photos.js';
 import { simpleKey } from '../store/surveys.js';
@@ -27,6 +27,8 @@ export function photoPack(state, cfg, keys) {
         if (p) files.push({ path: `写真/${folder}/${safe(p.name)}.jpg`, photo: p });
         else missing.push(`${toHalf(t.treeNo) || '(番号なし)'} ${slot.name}`);
       }
+      // 任意の写真も同じ公園・路線のフォルダに入れる
+      for (const p of extraPhotos(state.photos, simpleKey(t, cfg))) files.push({ path: `写真/${folder}/${safe(p.name)}.jpg`, photo: p });
     }
   }
   return { files, missing };
@@ -116,7 +118,7 @@ export default function PhotoOut({ state, config: cfg, group, photoStatus, persi
       <button type="button" className="btn big" disabled={!!busy} onClick={onZip} data-testid="photo-zip">
         {busy.startsWith('zip') ? `ZIP を作成中… ${busy.slice(4)}` : `写真を ZIP で出す（${all ? 'すべて' : groupLabel(state.trees, group, cfg)}）`}
       </button>
-      <p className="hint">公園・路線ごとのフォルダに分けて入れます。入れるのは入力済みの木の、撮る写真の枠ごとに最新の1枚です（撮り直す前の写真はサーバーに残っています）。</p>
+      <p className="hint">公園・路線ごとのフォルダに分けて入れます。入れるのは入力済みの木の、撮る写真の枠ごとに最新の1枚と、任意の写真です（撮り直す前の写真はサーバーに残っています）。</p>
       {report && (
         <div className={`alert ${report.errors.length ? 'danger' : 'info'}`} data-testid="photo-report">
           <span>

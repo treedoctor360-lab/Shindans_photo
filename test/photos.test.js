@@ -4,9 +4,9 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
 import cfgJson from './fixtures/sample-config.json';
 import { blankTree } from '../src/core/tree.js';
-import { addShot, currentPhotos, mergeRemote, photoFileName, shotStatus, storageRoom, uniqueName } from '../src/core/photoShots.js';
+import { addShot, currentPhotos, extraPhotos, mergeRemote, photoFileName, retireShot, shotDateDiffers, shotStatus, storageRoom, uniqueName } from '../src/core/photoShots.js';
 import { photoGet, photoPut } from '../src/store/photoDb.js';
-import { makeRoom, photoBytes, recoverPhotos, savePhoto, syncPhotos } from '../src/store/photos.js';
+import { makeRoom, photoBytes, recoverPhotos, retirePhoto, savePhoto, syncPhotos } from '../src/store/photos.js';
 import { initialState, migrate } from '../src/store/state.js';
 import { makeFakeGas } from './helpers/fakeGas.js';
 
@@ -205,5 +205,81 @@ describe('端末に残す写真の量の上限', () => {
     const d = await savePhoto({ ...s, cfg: c, tree: tree(), slot: full, shaped: shaped('H3'), estimate: roomy, now: new Date('2099-05-06T03:00:00Z') });
     expect(d.dropped).toBe(0);
     expect((await photoGet(b.rec.id)).full).toBeTruthy();
+  });
+});
+
+describe('アルバムから選んだ写真・任意の写真', () => {
+  const server = { url: 'https://example.invalid/exec', pass: 'ひみつ', deviceId: 'dev1' };
+  const extraSlot = (id, name) => ({ key: `x:${id}`, name, orient: '' });
+
+  it('アルバムの写真は、元の撮影日時と「アルバムから」の印を残す。撮影日が診断日と違えば知らせる（保存はする）', async () => {
+    const s = store();
+    const same = await savePhoto({ ...s, cfg, tree: tree(), slot: weak, shaped: shaped('J1'), source: 'album', shotAt: '2099-05-06T09:15:00', estimate: roomy });
+    expect(same.rec).toMatchObject({ source: 'album', shotAt: '2099-05-06T09:15:00', name: 'AB001腐朽990506' });
+    expect(same.warn).toBe('');
+    const other = await savePhoto({ ...s, cfg, tree: tree(), slot: weak, shaped: shaped('J2'), source: 'album', shotAt: '2099-04-01T09:15:00', estimate: roomy });
+    expect(other.warn).toContain('診断日（2099-05-06）と違います');
+    // 撮影日時が読めない写真は空のまま（知らせない）
+    const unknown = await savePhoto({ ...s, cfg, tree: tree(), slot: weak, shaped: shaped('J3'), source: 'album', shotAt: '', estimate: roomy });
+    expect(unknown.rec.shotAt).toBe('');
+    expect(unknown.warn).toBe('');
+    // 置き場所の写しにも残る（記録を戻すとき・サーバーに送るときに使う）
+    expect((await photoGet(other.rec.id)).meta).toMatchObject({ source: 'album', shotAt: '2099-04-01T09:15:00' });
+  });
+
+  it('その場で撮った写真は、撮影日時に保存した時刻を入れる', async () => {
+    const s = store();
+    const r = await savePhoto({ ...s, cfg, tree: tree(), slot: full, shaped: shaped('K', 480, 640), estimate: roomy, now: new Date(2099, 4, 6, 10, 20, 30) });
+    expect(r.rec).toMatchObject({ source: 'camera', shotAt: '2099-05-06T10:20:30' });
+  });
+
+  it('任意の写真は、撮る写真の数・今は要らない枠に入れない。1枚ずつ別の枠で、同じ名前なら -2 を付ける', async () => {
+    const s = store();
+    await savePhoto({ ...s, cfg, tree: tree(), slot: full, shaped: shaped('L1', 480, 640), estimate: roomy, now: new Date('2099-05-06T01:00:00Z') });
+    const a = await savePhoto({ ...s, cfg, tree: tree(), slot: extraSlot('a', ' 根元の様子 '.trim()), shaped: shaped('L2'), estimate: roomy, now: new Date('2099-05-06T02:00:00Z') });
+    const b = await savePhoto({ ...s, cfg, tree: tree(), slot: extraSlot('b', '根元の様子'), shaped: shaped('L3'), estimate: roomy, now: new Date('2099-05-06T03:00:00Z') });
+    expect(a.warn).toBe(''); // 向きの決まりがないので知らせない
+    expect(a.rec.name).toBe('AB001根元の様子990506');
+    expect(b.rec.name).toBe('AB001根元の様子990506-2');
+    const key = a.rec.key;
+    const ps = s.getState().photos;
+    expect(shotStatus({ slots: [full] }, ps, key)).toMatchObject({ need: 1, taken: 1, extra: [] });
+    expect(extraPhotos(ps, key).map((p) => p.id)).toEqual([a.rec.id, b.rec.id]);
+  });
+
+  it('任意の写真を「使わない」にしても消さない。印はサーバーに届き、他の端末でも使わない写真になる', async () => {
+    const g = makeFakeGas();
+    const fetchFn = g.fetchFn;
+    const s = store({ server: { ...server } });
+    const a = await savePhoto({ ...s, cfg, tree: tree(), slot: extraSlot('c', '根元'), shaped: shaped('M1'), estimate: roomy });
+    await syncPhotos({ ...s, cfg, fetchFn });
+    await retirePhoto({ update: s.update, id: a.rec.id });
+    expect(extraPhotos(s.getState().photos, a.rec.key)).toEqual([]);
+    expect(s.getState().photos).toHaveLength(1); // 記録は残る
+    expect((await photoGet(a.rec.id)).full).toBeTruthy(); // 本体も残る
+    await syncPhotos({ ...s, cfg, fetchFn });
+    const rows = g.sheets.get('photos').cells.slice(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0][5]).toBe('1');
+    const other = store({ server: { ...server, deviceId: 'dev2' }, photos: [] });
+    await syncPhotos({ ...other, cfg, fetchFn });
+    expect(other.getState().photos[0]).toMatchObject({ retired: true, source: 'camera' });
+  });
+
+  it('撮影日と診断日の比べ方：どちらかが空なら比べない', () => {
+    expect(shotDateDiffers('2099-05-06T09:00:00', '2099-05-06')).toBe(false);
+    expect(shotDateDiffers('2099-05-05T23:59:00', '2099-05-06')).toBe(true);
+    expect(shotDateDiffers('', '2099-05-06')).toBe(false);
+    expect(shotDateDiffers('2099-05-06T09:00:00', '')).toBe(false);
+  });
+
+  it('retireShot は指定した写真だけに印を付ける（ほかの写真・撮り直し済みの印は変えない）', () => {
+    const ps = [
+      { id: 'p1', retired: false },
+      { id: 'p2', retired: true, retiredAt: 'old', sentRetire: true },
+    ];
+    const out = retireShot(ps, 'p1', 'now');
+    expect(out[0]).toMatchObject({ retired: true, retiredAt: 'now', sentRetire: false });
+    expect(retireShot(out, 'p2', 'later')[1]).toMatchObject({ retiredAt: 'old', sentRetire: true });
   });
 });

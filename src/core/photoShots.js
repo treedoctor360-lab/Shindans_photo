@@ -11,8 +11,12 @@
 //  fileId   … サーバー（ドライブ）に届いたときのファイルの印。空なら未送信
 //  local    … 端末に残っているもの：'full'（本体と見本）/ 'thumb'（見本だけ。本体はサーバー）/ ''（無し。他の端末で撮った写真）
 //  retired  … 撮り直して使わなくなった写真（消さずに残す）
+//  source   … どこから入れたか：'camera'（その場で撮った）/ 'album'（アルバムから選んだ）
+//  shotAt   … 元の撮影日時（カメラはその時刻、アルバムは写真の中の撮影日時。読めなければ空）
+//             takenAt は「アプリに入れた時刻」で、並び順（最新の1枚）・撮り直しの判定に使う
 //
 // 同じ木・同じ枠に何枚あっても、使うのは撮り直していない最新の1枚。
+// 任意の写真（撮る写真の枠にない写真）は、1枚ごとに枠を作る（slot が 'x:' で始まる）。名前は入れた人が決める。
 
 import { toHalf } from './text.js';
 
@@ -62,13 +66,39 @@ export function currentPhotos(photos, key) {
   return out;
 }
 
+// 任意の写真の枠
+export const EXTRA_PREFIX = 'x:';
+export const isExtraSlot = (slot) => String(slot || '').startsWith(EXTRA_PREFIX);
+
+// 任意の写真の名前を整える（前後の空白を除く。ファイル名に使えない文字は photoFileName で除く）
+export const extraName = (s) => String(s || '').trim();
+
+// その木の任意の写真（使っているもの。入れた順）
+export function extraPhotos(photos, key) {
+  return Object.values(currentPhotos(photos, key))
+    .filter((p) => isExtraSlot(p.slot))
+    .sort((a, b) => String(a.takenAt).localeCompare(String(b.takenAt)));
+}
+
 // 撮る写真の進み具合：{ need: 枠の数, taken: 撮った枠の数, missing: [撮っていない枠の名前], extra: [今は要らない枠の写真] }
+//  任意の写真は数に入れない（extra にも入れない）
 export function shotStatus(plan, photos, key) {
   const cur = currentPhotos(photos, key);
   const slots = plan.slots || [];
   const missing = slots.filter((s) => !cur[s.key]).map((s) => s.name);
-  const extra = Object.values(cur).filter((p) => !slots.some((s) => s.key === p.slot));
+  const extra = Object.values(cur).filter((p) => !isExtraSlot(p.slot) && !slots.some((s) => s.key === p.slot));
   return { need: slots.length, taken: slots.length - missing.length, missing, extra };
+}
+
+// 写真を「使わない」にする（消さずに、撮り直しと同じ印を付ける。サーバーにも知らせる）
+export function retireShot(photos, id, at) {
+  return (photos || []).map((p) => (p.id === id && !p.retired ? { ...p, retired: true, retiredAt: at, sentRetire: false } : p));
+}
+
+// アルバムの写真の撮影日が、診断日と違うか（違えば知らせる。別の日・別の木の写真の取り違えを防ぐ）
+export function shotDateDiffers(shotAt, date) {
+  const d = String(shotAt || '').slice(0, 10);
+  return !!d && !!date && d !== String(date).slice(0, 10);
 }
 
 // 写真の向き（幅と高さから）

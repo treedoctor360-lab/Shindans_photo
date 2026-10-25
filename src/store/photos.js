@@ -9,7 +9,7 @@
 //  ・端末の写真の記録は消さない（撮り直した写真も「撮り直し」の印を付けて残す）
 //  ・写真の保存・送信に失敗しても、入力内容の保存・送信には響かない
 
-import { addShot, cameraOf, localBytes, mergeRemote, orientOf, photoFileName, storageRoom, uniqueName, unsentPhotos, unsentRetires } from '../core/photoShots.js';
+import { addShot, cameraOf, localBytes, mergeRemote, orientOf, photoFileName, retireShot, shotDateDiffers, storageRoom, uniqueName, unsentPhotos, unsentRetires } from '../core/photoShots.js';
 import { groupKey, groupLabel } from '../core/groups.js';
 import { photoDropFull, photoGet, photoKeys, photoPut } from './photoDb.js';
 import { simpleKey } from './surveys.js';
@@ -40,7 +40,7 @@ export async function storageEstimate() {
 const byteLen = (x) => (x ? (x.byteLength ?? x.size ?? 0) : 0);
 
 // 送る・戻すときに使う、写真の記録の項目
-const META_KEYS = ['id', 'key', 'slot', 'slotName', 'name', 'want', 'orient', 'w', 'h', 'bytes', 'takenAt', 'by', 'deviceId', 'year', 'group', 'treeNo', 'species'];
+const META_KEYS = ['id', 'key', 'slot', 'slotName', 'name', 'want', 'orient', 'w', 'h', 'bytes', 'takenAt', 'by', 'deviceId', 'year', 'group', 'treeNo', 'species', 'source', 'shotAt'];
 export const metaOf = (p) => Object.fromEntries(META_KEYS.map((k) => [k, p[k] ?? '']));
 
 // 端末の空きを作る：サーバーに届いたことを確かめた写真の本体を、古い順に外す（見本と記録は残す）
@@ -69,8 +69,10 @@ export async function makeRoom({ getState, update, need, estimate = storageEstim
 
 // 撮った写真を保存する
 //  shaped：photoShot.js の shapePhoto の結果 { full: Blob, thumb: Blob, w, h }
+//  source：'camera'（その場で撮った）/ 'album'（アルバムから選んだ）
+//  shotAt：アルバムの写真の元の撮影日時（exif.js の readShotDate。読めなければ ''）。カメラは保存した時刻
 //  返す形：{ rec, warn（向きが決まりと違うときの知らせ）, dropped（空きを作るため本体を外した枚数） }
-export async function savePhoto({ getState, update, cfg, tree, slot, shaped, now = new Date(), estimate = storageEstimate }) {
+export async function savePhoto({ getState, update, cfg, tree, slot, shaped, source = 'camera', shotAt = '', now = new Date(), estimate = storageEstimate }) {
   const full = await shaped.full.arrayBuffer();
   const thumb = await shaped.thumb.arrayBuffer();
   const room = await makeRoom({ getState, update, need: full.byteLength + thumb.byteLength, estimate, cfg });
@@ -101,6 +103,8 @@ export async function savePhoto({ getState, update, cfg, tree, slot, shaped, now
     group: groupLabel(state.trees, groupKey(tree, cfg), cfg),
     treeNo: tree.treeNo || '',
     species: tree.species || '',
+    source,
+    shotAt: source === 'album' ? shotAt || '' : localTime(now),
     fileId: '',
     local: 'full',
   };
@@ -110,8 +114,21 @@ export async function savePhoto({ getState, update, cfg, tree, slot, shaped, now
   if (!back || byteLen(back.full) !== full.byteLength) throw new Error('写真を端末に保存できませんでした（読み直すと違っていました）');
 
   await update((cur) => ({ ...cur, photos: addShot(cur.photos || [], rec) }), { now: true });
-  const warn = slot.orient && slot.orient !== rec.orient ? `${slot.name}は${slot.orient}向きの決まりです（${rec.orient}向きで撮りました）` : '';
-  return { rec, warn, dropped: room.dropped };
+  const warns = [];
+  if (slot.orient && slot.orient !== rec.orient) warns.push(`${slot.name}は${slot.orient}向きの決まりです（${rec.orient}向きで撮りました）`);
+  if (source === 'album' && shotDateDiffers(rec.shotAt, date)) warns.push(`この写真の撮影日（${rec.shotAt.slice(0, 10)}）が診断日（${date}）と違います。別の日の写真でないか確かめてください`);
+  return { rec, warn: warns.join('。'), dropped: room.dropped };
+}
+
+// 写真を「使わない」にする（任意の写真を外すとき）。消さずに印を付け、サーバーにも知らせる
+export async function retirePhoto({ update, id, now = new Date() }) {
+  await update((cur) => ({ ...cur, photos: retireShot(cur.photos || [], id, now.toISOString()) }), { now: true });
+}
+
+// 端末の時刻の 'YYYY-MM-DDTHH:MM:SS'（写真の中の撮影日時と同じ形）
+function localTime(d) {
+  const z = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
 }
 
 // 起動時：写真の置き場所にあるのに記録にない写真を、置き場所の写しから記録に戻す
