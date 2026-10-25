@@ -4,7 +4,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
 import cfgJson from './fixtures/sample-config.json';
 import { blankTree } from '../src/core/tree.js';
-import { addShot, currentPhotos, extraPhotos, mergeRemote, photoFileName, retireShot, shotDateDiffers, shotStatus, storageRoom, uniqueName } from '../src/core/photoShots.js';
+import { addShot, currentPhotos, extraPhotos, shotSlots, mergeRemote, photoFileName, retireShot, shotDateDiffers, shotStatus, storageRoom, uniqueName } from '../src/core/photoShots.js';
 import { photoGet, photoPut } from '../src/store/photoDb.js';
 import { makeRoom, photoBytes, recoverPhotos, retirePhoto, savePhoto, syncPhotos } from '../src/store/photos.js';
 import { initialState, migrate } from '../src/store/state.js';
@@ -281,5 +281,23 @@ describe('アルバムから選んだ写真・任意の写真', () => {
     const out = retireShot(ps, 'p1', 'now');
     expect(out[0]).toMatchObject({ retired: true, retiredAt: 'now', sentRetire: false });
     expect(retireShot(out, 'p2', 'later')[1]).toMatchObject({ retiredAt: 'old', sentRetire: true });
+  });
+});
+
+describe('特記事項に書いたものの写真（photoPlan の shoot）', () => {
+  const noteSlot = { key: 'n:枝の偏り', name: '枝の偏り', orient: '横', note: true };
+
+  it('撮る写真の数は shoot（特記事項の写真を含む）で数える。shoot のない形は slots', () => {
+    const plan = { slots: [], extra: [noteSlot], shoot: [full, noteSlot] };
+    expect(shotSlots(plan).map((x) => x.key)).toEqual(['full', 'n:枝の偏り']);
+    expect(shotSlots({ slots: [full] }).map((x) => x.key)).toEqual(['full']);
+    const ps = addShot([], { id: 'p1', key: 'k', slot: 'full', takenAt: '1' });
+    expect(shotStatus(plan, ps, 'k')).toMatchObject({ need: 2, taken: 1, missing: ['枝の偏り'], extra: [] });
+  });
+
+  it('特記事項から消した行の写真は「今は要らない枠の写真」に残る（消さない）', () => {
+    const ps = addShot([], { id: 'p1', key: 'k', slot: 'n:枝の偏り', takenAt: '1' });
+    const st = shotStatus({ slots: [], extra: [], shoot: [] }, ps, 'k');
+    expect(st.extra.map((p) => p.id)).toEqual(['p1']);
   });
 });

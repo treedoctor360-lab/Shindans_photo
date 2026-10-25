@@ -189,3 +189,44 @@ test('アルバムから選べる。枠にない写真も名前を付けて足�
     .sort();
   expect(names).toEqual(['AB002全景990506.jpg', 'AB002枯れ枝990506.jpg', 'AB002根元の様子990506.jpg'].sort());
 });
+
+test('特記事項に書いたもの（定型文・手で書いた行）も撮る写真の枠に出て、撮れる。数にも入る。行を消しても写真は消さない', async ({ page }) => {
+  await page.goto('./');
+  await page.fill('#s-date', '2099-05-06');
+  await page.fill('#s-insp', '試験 二郎(資格)');
+  await page.setInputFiles('[data-testid=config-file]', 'test/fixtures/sample-config.json');
+  await page.setInputFiles('[data-testid=ledger-file]', tmp('pn-ledger.xlsx', await makeLedger()));
+  await expect(page.locator('[data-testid=ledger-status] .ok')).toBeVisible();
+  await page.click('.tab:has-text("一覧")');
+  await page.click('[data-tree=AB002]');
+  await page.fill('#f-height', '10');
+  await page.fill('#f-girth0', '0.5');
+  for (const [g, v] of [['vigor', '並'], ['lean', '無'], ['deadBranch', '無'], ['decay', '無'], ['fungus', '無'], ['initialNeeded', '否'], ['grade', 'B']])
+    await page.click(`[data-group=${g}] [data-v="${v}"]`);
+  // 弱点なし → 写真不要（枠なし）
+  await expect(page.locator('[data-testid=photo-shots] .shot[data-slot]')).toHaveCount(0);
+
+  // 定型文と手で書いた行を足す → 全景と、特記事項の写真の枠が出る
+  await page.click('[data-testid=note-chips] button:has-text("枝の偏り")');
+  await page.fill('#f-notes', `${await page.inputValue('#f-notes')}\n・幹に古い傷あり。`);
+  await expect(page.locator('[data-testid=photo-plan-notes]')).toContainText('特記事項から：枝の偏り（横向き）、幹に古い傷あり（横向き）');
+  const slots = page.locator('[data-testid=photo-shots] .shot[data-slot]');
+  await expect(slots).toHaveCount(3);
+  await expect(page.locator('[data-slot="n:枝の偏り"] [data-testid=shot-from-note]')).toHaveText('特記事項から');
+  await expect(page.locator('[data-slot=full] [data-testid=shot-from-note]')).toHaveCount(0);
+  await expect(page.locator('[data-testid=shot-progress]')).toContainText('0／3');
+
+  await page.setInputFiles('[data-shot="n:枝の偏り"]', png('n1.png', 1600, 1200, [60, 120, 40]));
+  await expect(page.locator('.toast')).toContainText('枝の偏りを保存しました');
+  await expect(page.locator('[data-slot="n:枝の偏り"] .shot-name')).toHaveText('AB002枝の偏り990506.jpg');
+  await expect(page.locator('[data-testid=shot-progress]')).toContainText('1／3');
+  await page.click('text=保存して次の木へ');
+  await page.click('.tab:has-text("一覧")');
+  await expect(page.locator('[data-tree=AB002] [data-testid=card-photo]')).toHaveText('写真 1/3');
+
+  // 特記事項からその行を消す → 枠は消え、撮った写真は「今は要らない枠の写真」に残る
+  await page.click('[data-tree=AB002]');
+  await page.click('[data-testid=note-chips] button:has-text("枝の偏り")');
+  await expect(page.locator('[data-slot="n:枝の偏り"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid=shot-extra] [data-testid=shot-thumb]')).toHaveCount(1);
+});

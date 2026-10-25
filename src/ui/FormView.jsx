@@ -651,12 +651,20 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
           <div className="plan" data-testid="photo-plan">
             {plan.mode === 'pending'
               ? `${cfg.vigorLabel}などを入力すると、必要な写真を判定します`
-              : plan.slots.length
+              : plan.shoot.length
                 ? (
                     <>
-                      撮る写真：<b>{MODE_TEXT[plan.mode]}</b>
+                      撮る写真：<b>{plan.slots.length ? MODE_TEXT[plan.mode] : '全景'}</b>
                       <br />
-                      {plan.slots.map((x) => `${x.name}（${x.orient}向き）`).join('、')}
+                      {(plan.slots.length ? plan.slots : plan.shoot.filter((x) => !x.note)).map((x) => `${x.name}（${x.orient}向き）`).join('、')}
+                      {plan.extra.length > 0 && (
+                        <>
+                          <br />
+                          <span data-testid="photo-plan-notes">
+                            特記事項から：{plan.extra.map((x) => `${x.name}（${x.orient}向き）`).join('、')}
+                          </span>
+                        </>
+                      )}
                     </>
                   )
                 : '写真不要です'}

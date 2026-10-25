@@ -80,11 +80,15 @@ export function extraPhotos(photos, key) {
     .sort((a, b) => String(a.takenAt).localeCompare(String(b.takenAt)));
 }
 
+// 現場で撮る写真の枠（photoPlan の shoot：弱点写真などの枠＋特記事項に書いたものの写真）
+//  shoot がない（古い形の）plan は slots を使う
+export const shotSlots = (plan) => plan?.shoot || plan?.slots || [];
+
 // 撮る写真の進み具合：{ need: 枠の数, taken: 撮った枠の数, missing: [撮っていない枠の名前], extra: [今は要らない枠の写真] }
-//  任意の写真は数に入れない（extra にも入れない）
+//  数えるのは現場で撮る写真の全部（shotSlots。特記事項の写真も入る）。任意の写真は数に入れない（extra にも入れない）
 export function shotStatus(plan, photos, key) {
   const cur = currentPhotos(photos, key);
-  const slots = plan.slots || [];
+  const slots = shotSlots(plan);
   const missing = slots.filter((s) => !cur[s.key]).map((s) => s.name);
   const extra = Object.values(cur).filter((p) => !isExtraSlot(p.slot) && !slots.some((s) => s.key === p.slot));
   return { need: slots.length, taken: slots.length - missing.length, missing, extra };

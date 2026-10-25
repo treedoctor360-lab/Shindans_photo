@@ -74,6 +74,21 @@ export function measurePhotos(tree, cfg) {
   return out;
 }
 
+// 特記事項に残っている寸法の1行のうち、弱点写真の名前（photo）が設定にないものの写真の名前
+//  （特記事項に書いたものは撮る。名前は「部位の種類」。例「根株の鋼棒貫入」「打診音異常」）
+//  返す形：[{ line: その1行, name: 写真の名前 }]
+export function measureNoteNames(tree, cfg) {
+  const notes = String(tree?.notes || '');
+  const out = [];
+  for (const m of tree?.measures || []) {
+    if (!m?.line || !notes.includes(m.line)) continue;
+    const kind = kindOf(m.kind, cfg);
+    if (!kind) continue;
+    out.push({ line: m.line, name: kind.photo ? kind.photo.replace('{place}', m.place || '') : `${m.place ? `${m.place}の` : ''}${kind.label}`, hasPhoto: !!kind.photo });
+  }
+  return out;
+}
+
 // 特記事項の最後に1行足す（定型文の行と同じく頭に「・」。最後の空行は詰める）
 export function appendNoteLine(notes, line) {
   const base = String(notes || '').replace(/\s+$/, '');

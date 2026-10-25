@@ -180,8 +180,27 @@ describe('特記事項の寸法の1行から撮る写真を決める（kinds の
     expect(photoPlan(tree([rod], `・${rod.line}`), c).mode).toBe('fullOnly');
   });
 
-  it('特記事項から消した・書き換えた1行は使わない。設定にない種類は今までどおり', () => {
+  it('特記事項から消した・書き換えた1行は判定に使わない。設定にない種類は今までどおり', () => {
     expect(photoPlan(tree([decay, rod], '・別の特記'), c).mode).toBe('none');
     expect(photoPlan(tree([decay], `・${decay.line}`), cfgJson).mode).toBe('none');
+  });
+
+  // 特記事項に書いたものは撮る（現場で撮る写真。一覧表の写真の有無・弱点写真の上限には数えない）
+  it('特記事項の寸法の1行・定型文・手で書いた行は、すべて撮る写真（extra）に出る', () => {
+    const p = photoPlan(tree([rod], `・${rod.line}\n・枝の偏り\n・幹に古い傷あり。`), c);
+    expect(p.mode).toBe('fullOnly'); // 判定（写真の有無）は今までどおり
+    expect(p.extra.map((x) => x.name)).toEqual(['枝の偏り', '根株の鋼棒貫入', '幹に古い傷あり']);
+    expect(p.extra.every((x) => x.orient === c.photo.weakOrient)).toBe(true);
+    expect(p.shoot.map((x) => x.name)).toEqual(['全景', '枝の偏り', '根株の鋼棒貫入', '幹に古い傷あり']);
+  });
+
+  it('弱点写真と同じ名前は二重に出さない。弱点がなくても特記があれば全景も撮る', () => {
+    const p = photoPlan(tree([decay], `・${decay.line}`), c);
+    expect(p.slots.map((s) => s.name)).toEqual(['全景', '幹の腐朽']);
+    expect(p.extra).toEqual([]);
+    const q = photoPlan(tree([], '・枝の偏り'), cfgJson);
+    expect(q.mode).toBe('none');
+    expect(q.shoot.map((x) => x.name)).toEqual(['全景', '枝の偏り']);
+    expect(photoPlan(tree([], ''), cfgJson).shoot).toEqual([]);
   });
 });
