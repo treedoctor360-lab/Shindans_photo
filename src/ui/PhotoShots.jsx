@@ -3,7 +3,7 @@
 //  事務の端末（canShoot が false）は見るだけ。端末にない写真はサーバーから取り出して見る
 import { useEffect, useState } from 'react';
 import { readShotDate } from '../core/exif.js';
-import { EXTRA_PREFIX, cameraOf, currentPhotos, extraName, extraPhotos, shotStatus, sizeText } from '../core/photoShots.js';
+import { EXTRA_PREFIX, cameraOf, currentPhotos, extraName, extraPhotos, shotSlots, shotStatus, sizeText } from '../core/photoShots.js';
 import { photoBytes, readPhoto, retirePhoto, savePhoto } from '../store/photos.js';
 import { simpleKey } from '../store/surveys.js';
 import { shapePhoto } from './photoShot.js';
@@ -79,6 +79,7 @@ export default function PhotoShots({ t, plan, state, update, getState, config: c
   const key = simpleKey(t, cfg);
   const cur = currentPhotos(state.photos, key);
   const st = shotStatus(plan, state.photos, key);
+  const slots = shotSlots(plan); // 現場で撮る写真の全部（特記事項に書いたものの写真も）
   const [busy, setBusy] = useState('');
   const [view, setView] = useState(null); // 大きく見ている写真 { photo, url }
   const [newName, setNewName] = useState(''); // 足す任意の写真の名前
@@ -134,21 +135,22 @@ export default function PhotoShots({ t, plan, state, update, getState, config: c
     setView(null);
   };
 
-  if (!plan.slots.length && !st.extra.length && !extras.length && !canShoot) return null;
+  if (!slots.length && !st.extra.length && !extras.length && !canShoot) return null;
   return (
     <div className="shots" data-testid="photo-shots">
-      {plan.slots.length > 0 && (
+      {slots.length > 0 && (
         <div className="hint" data-testid="shot-progress">
           撮った写真：{st.taken}／{st.need}
           {st.missing.length > 0 && `（まだ：${st.missing.join('、')}）`}
         </div>
       )}
-      {plan.slots.map((slot) => {
+      {slots.map((slot) => {
         const p = cur[slot.key];
         return (
           <div className={`shot${p ? ' done' : ''}`} key={slot.key} data-slot={slot.key}>
             <div className="shot-head">
               <b>{slot.name}</b> <small>{slot.orient}向き</small>
+              {slot.note && <small className="tag" data-testid="shot-from-note">特記事項から</small>}
               {p && (
                 <small className={`tag ${p.fileId ? 'ok' : 'warn'}`} data-testid="shot-send">
                   {sendText(p)}
