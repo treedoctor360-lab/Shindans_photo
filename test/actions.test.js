@@ -1,10 +1,11 @@
 // 画面の操作（一覧・入力）で状態を変える処理のテスト
 import { describe, expect, it } from 'vitest';
 import cfgJson from './fixtures/sample-config.json';
+import { validateConfig } from '../src/core/config.js';
 import { groupKey, groupKeys, groupLabel } from '../src/core/groups.js';
 import { blankTree } from '../src/core/tree.js';
 import { initialState } from '../src/store/state.js';
-import { addTree, fillChecksNone, normalizeField, nextTodo, pressAlertAction, pressOption, saveTree, toggleTreat } from '../src/store/actions.js';
+import { addGroup, addTree, fillChecksNone, normalizeField, nextTodo, pressAlertAction, pressOption, saveTree, toggleTreat, nextTreeNo } from '../src/store/actions.js';
 
 const cfg = structuredClone(cfgJson);
 const P = (id, o = {}) => blankTree({ id, treeNo: id, species: 'テストノキ', siteType: 'park', parkCode: 'K01', parkName: '架空公園', ...o });
@@ -137,5 +138,65 @@ describe('【再現】入力済みの木を後日直しても、元の調査日�
     s = { ...s, trees: s.trees.map((x) => (x.id === 'a' ? { ...x, done: false } : x)) };
     s = saveTree(s, cfg, { after: 'stay' }).state;
     expect(s.trees[0]).toMatchObject({ date: '2099-06-01', inspector: '試験 三郎' });
+  });
+});
+
+describe('まとまりを現地で足す・番号を順に振る（設定 addGroups・numbering。台帳なしで使う）', () => {
+  const cfg2 = {
+    ...structuredClone(cfgJson),
+    numbering: { start: 1, carry: ['species'] },
+    addGroups: { siteType: 'street', label: '路線', fields: [{ key: 'routeName', label: '路線名' }, { key: 'routeNo', label: '路線番号' }] },
+  };
+  const empty = () => ({ ...initialState(), session: { date: '2099-05-06', inspector: '試験 二郎' } });
+
+  it('設定の検証：今までの設定はそのまま通り、足した項目の誤りは断る', () => {
+    expect(validateConfig(cfg2).errors).toEqual([]);
+    expect(validateConfig({ ...cfg2, addGroups: { siteType: 'nowhere', fields: [{ key: 'routeName', label: '路線名' }] } }).ok).toBe(false);
+    expect(validateConfig({ ...cfg2, addGroups: { siteType: 'street', fields: [{ key: 'routeNo', label: '路線番号' }] } }).ok).toBe(false); // 名前の項目がない
+    expect(validateConfig({ ...cfg2, numbering: { start: -1 } }).ok).toBe(false);
+  });
+
+  it('台帳がなくても路線を足せ、1本目の木が番号1で開く', () => {
+    const r = addGroup(empty(), cfg2, { routeName: '架空通り', routeNo: '７' }, 1);
+    expect([r.error, r.exists]).toEqual(['', false]);
+    expect(r.state.trees).toHaveLength(1);
+    expect(r.state.trees[0]).toMatchObject({ siteType: 'street', routeName: '架空通り', routeNo: '7', treeNo: '1', done: false });
+    expect(r.state.trees[0].uid).toBeTruthy(); // 追加した木の印（番号を後で直しても同じ木）
+    expect([r.state.group, r.state.view, r.state.currentId]).toEqual(['street:架空通り', 'form', 'new:1']);
+  });
+
+  it('名前がなければ足さず、同じ名前の路線があればその路線を開くだけ', () => {
+    expect(addGroup(empty(), cfg2, { routeNo: '7' }, 1)).toMatchObject({ error: '路線名を入れてください' });
+    const one = addGroup(empty(), cfg2, { routeName: '架空通り' }, 1).state;
+    const again = addGroup({ ...one, view: 'settings' }, cfg2, { routeName: '架空通り' }, 2);
+    expect(again.exists).toBe(true);
+    expect(again.state.trees).toHaveLength(1);
+    expect([again.state.group, again.state.view]).toEqual(['street:架空通り', 'list']);
+  });
+
+  it('路線ごとに1から振る。「保存してもう1本追加」で次の番号と前の木の樹種が入る', () => {
+    let s = addGroup(empty(), cfg2, { routeName: '架空通り' }, 1).state;
+    s = { ...s, trees: s.trees.map((t) => ({ ...t, ...full, species: 'テストノキ' })) };
+    s = saveTree(s, cfg2, { after: 'add', now: '2099-05-06T01:00:00.000Z' }).state;
+    expect(s.trees.map((t) => [t.treeNo, t.species])).toEqual([['1', 'テストノキ'], ['2', 'テストノキ']]);
+    // 別の路線はまた1から
+    s = addGroup(s, cfg2, { routeName: '別の通り' }, 5).state;
+    expect(s.trees.at(-1)).toMatchObject({ routeName: '別の通り', treeNo: '1', species: '' });
+  });
+
+  it('途中に差し込む木は番号を空欄にする（後ろの番号は振り直さない）。枝番・消した木は数えない', () => {
+    const R = (id, no, o = {}) => blankTree({ id, uid: id, treeNo: no, species: 'テストノキ', siteType: 'street', routeName: '架空通り', ...o });
+    const s = { ...empty(), trees: [R('a', '1'), R('b', '2'), R('c', '2-1'), R('d', '9', { deleted: true })], group: 'street:架空通り' };
+    expect(nextTreeNo(s.trees.filter((t) => !t.deleted), cfg2)).toBe('3');
+    const mid = addTree(s, cfg2, { now: 7, afterId: 'a' });
+    expect(mid.trees.find((t) => t.id === 'new:7')).toMatchObject({ treeNo: '', species: 'テストノキ' });
+    expect(mid.trees.filter((t) => t.id !== 'new:7').map((t) => t.treeNo)).toEqual(['1', '2', '2-1', '9']);
+    const end = addTree(s, cfg2, { now: 8 });
+    expect(end.trees.find((t) => t.id === 'new:8').treeNo).toBe('3');
+  });
+
+  it('numbering のない設定では今までどおり（番号は空欄・樹種は写さない）', () => {
+    const s = { ...empty(), trees: [P('a')], group: groupKey(P('a'), cfg) };
+    expect(addTree(s, cfg, { now: 1 }).trees[1]).toMatchObject({ treeNo: '', species: '' });
   });
 });

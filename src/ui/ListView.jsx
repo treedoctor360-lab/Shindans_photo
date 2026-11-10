@@ -1,4 +1,5 @@
 // 一覧画面：公園・路線を選び、木の一覧から入力する木を選ぶ
+import AddGroupBox from './AddGroupBox.jsx';
 import { groupKey, groupKeys, groupLabel, treesOfGroup } from '../core/groups.js';
 import { alertsOf } from '../core/rules.js';
 import { monthDay, toHalf } from '../core/text.js';
@@ -42,6 +43,14 @@ const REVIEW_FILTERS = [
 export default function ListView({ state, update, config: cfg, send, toast }) {
   const [askBulk, setAskBulk] = useState(false);
   const prevIndex = usePrevIndex();
+  // 台帳がなくても、設定でまとまりを足せるなら、ここから始められる
+  if (cfg?.addGroups && !state.trees.length) {
+    return (
+      <section className="view">
+        <AddGroupBox state={state} cfg={cfg} update={update} toast={toast} open />
+      </section>
+    );
+  }
   if (!cfg || !state.trees.length) {
     return (
       <section className="view">
@@ -357,6 +366,7 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
       >
         ＋ 一覧にない木を追加
       </button>
+      {cfg.addGroups && <AddGroupBox state={state} cfg={cfg} update={update} toast={toast} />}
       {/* 調査日を間違えて保存した木を、この公園・路線でまとめて直す（入力内容を直すのは調査者だけ） */}
       {role === 'surveyor' && (
         <RedateBox key={group} state={state} update={update} cfg={cfg} trees={all} groupName={groupLabel(state.trees, group, cfg)} send={send} toast={toast} />

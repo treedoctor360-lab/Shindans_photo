@@ -138,8 +138,29 @@ export function validateConfig(cfg) {
   if (cfg.initialSurvey != null) validateInitialSurvey(cfg.initialSurvey, cfg, need);
   if (cfg.noteMeasures != null) validateNoteMeasures(cfg.noteMeasures, need); // 特記事項に足す寸法の1行（省略可）
   if (cfg.wording != null) validateWording(cfg.wording, need); // 表記の統一（省略可）
+  if (cfg.numbering != null) validateNumbering(cfg.numbering, need); // 追加した木に番号を順に振る（省略可）
+  if (cfg.addGroups != null) validateAddGroups(cfg.addGroups, cfg, need); // まとまり（公園・路線）を現地で足す（省略可）
 
   return { ok: e.length === 0, errors: e };
+}
+
+// 追加した木の番号（まとまりごとに start から順に）と、前の木から写す項目
+function validateNumbering(n, need) {
+  if (!need(isObj(n), 'numbering（追加した木の番号）の形が違います')) return;
+  need(n.start == null || (Number.isInteger(n.start) && n.start >= 0), 'numbering.start（最初の番号）は 0 以上の整数にしてください');
+  need(n.carry == null || (isArr(n.carry) && n.carry.every(isStr)), 'numbering.carry（前の木から写す項目）は項目の名前の一覧にしてください');
+}
+
+// まとまりを現地で足すときの入力欄
+function validateAddGroups(a, cfg, need) {
+  if (!need(isObj(a), 'addGroups（まとまりを足す）の形が違います')) return;
+  const sheet = isArr(cfg.dbFormat?.sheets) ? cfg.dbFormat.sheets.find((x) => x?.type === a.siteType) : null;
+  if (!need(!!sheet, 'addGroups.siteType は dbFormat.sheets の type のどれかにしてください')) return;
+  need(a.label == null || isStr(a.label), 'addGroups.label（まとまりの呼び名。例「路線」）は文字にしてください');
+  if (!need(isArr(a.fields) && a.fields.length > 0 && a.fields.every((f) => isStr(f?.key) && isStr(f?.label)), 'addGroups.fields は [{ key, label }] の一覧にしてください')) return;
+  need(a.fields.some((f) => f.key === sheet.identify), `addGroups.fields に、まとまりの名前の項目（${sheet.identify}）が必要です`);
+  const known = [sheet.identify, sheet.code, ...(isArr(cfg.dbFormat.infoKeys) ? cfg.dbFormat.infoKeys : [])];
+  a.fields.forEach((f) => need(known.includes(f.key), `addGroups.fields の ${f.key} は、dbFormat.infoKeys にある項目にしてください`));
 }
 
 // 台帳・一覧表の書式（見出しの探し方など）
