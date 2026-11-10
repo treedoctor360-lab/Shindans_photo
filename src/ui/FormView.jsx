@@ -512,6 +512,30 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               </div>
             </div>
           </div>
+          {/* 設定で足した計測の欄（extraFields。例 枝張り・枝下高）。2つずつ横に並べる */}
+          {(cfg.extraFields || []).length > 0 && (
+            <div className="grid2" data-testid="extra-fields">
+              {cfg.extraFields.map((f) => (
+                <div className="row" key={f.key}>
+                  <label className="lbl" htmlFor={`f-x-${f.key}`}>
+                    {f.label}
+                  </label>
+                  <div className="unit">
+                    <input
+                      type="text"
+                      inputMode={f.numeric ? 'decimal' : undefined}
+                      id={`f-x-${f.key}`}
+                      className={f.numeric ? 'num' : undefined}
+                      value={t[f.key] ?? ''}
+                      onChange={(e) => setField(f.key, e.target.value)}
+                      onBlur={() => blurField(f.key)}
+                    />
+                    {f.unit && <span>{f.unit}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <dl className="calc" data-testid="calc">
             <div>
               <dt>幹周(記録値)</dt>
@@ -655,12 +679,15 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
             <span className="lbl">{cfg.initial.label}</span>
             <Seg field="initialNeeded" opts={cfg.options.initialNeeded} value={t.initialNeeded} onPress={press} />
           </div>
-          <div className="row">
-            <span className="lbl">{cfg.gradeLabel}</span>
-            <Seg field="grade" opts={cfg.options.grade} value={t.grade} onPress={press} disabled={gradeLocked} className="grade" />
-            <div className="hint">{t.grade ? `${t.grade}：${cfg.gradeText?.[t.grade] || ''}` : cfg.gradeHint || ''}</div>
-            {gradeLocked && <div className="lock">{cfg.initial.label}が「{cfg.initial.yes}」なので、{cfg.gradeLabel}は空欄にします。</div>}
-          </div>
+          {/* noGrade：健全度を現場で付けない業務では欄を出さない */}
+          {!cfg.noGrade && (
+            <div className="row" data-testid="grade-row">
+              <span className="lbl">{cfg.gradeLabel}</span>
+              <Seg field="grade" opts={cfg.options.grade} value={t.grade} onPress={press} disabled={gradeLocked} className="grade" />
+              <div className="hint">{t.grade ? `${t.grade}：${cfg.gradeText?.[t.grade] || ''}` : cfg.gradeHint || ''}</div>
+              {gradeLocked && <div className="lock">{cfg.initial.label}が「{cfg.initial.yes}」なので、{cfg.gradeLabel}は空欄にします。</div>}
+            </div>
+          )}
         </div>
 
         <div className="sec">

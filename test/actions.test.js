@@ -200,3 +200,43 @@ describe('まとまりを現地で足す・番号を順に振る（設定 addGro
     expect(addTree(s, cfg, { now: 1 }).trees[1]).toMatchObject({ treeNo: '', species: '' });
   });
 });
+
+describe('計測に足す欄（設定 extraFields）', () => {
+  const extraFields = [
+    { key: 'spread', label: '枝張り', unit: 'm', numeric: true },
+    { key: 'clearWalk', label: '枝下高（歩道）', unit: 'm', numeric: true },
+    { key: 'memoX', label: '覚え' },
+  ];
+  const cfg3 = { ...structuredClone(cfgJson), extraFields };
+
+  it('設定の検証：ほかの項目と同じ名前・重なった名前・英数字でない名前は断る', () => {
+    expect(validateConfig(cfg3).errors).toEqual([]);
+    const bad = (list) => validateConfig({ ...cfg3, extraFields: list }).ok;
+    expect(bad([{ key: 'height', label: '樹高' }])).toBe(false); // 木の記録がもともと使う名前
+    expect(bad([{ key: cfg.checks[0].key, label: '点検項目' }])).toBe(false);
+    expect(bad([{ key: 'parkName', label: '場所の情報' }])).toBe(false);
+    expect(bad([{ key: 'spread', label: 'a' }, { key: 'spread', label: 'b' }])).toBe(false);
+    expect(bad([{ key: '枝張り', label: '枝張り' }])).toBe(false);
+    expect(bad([{ key: 'spread' }])).toBe(false);
+  });
+
+  it('入力を確定したとき：数の欄は半角に、文字の欄は前後の空白を取る', () => {
+    const t = { ...P('a'), spread: ' ３．５ ', memoX: ' 車道側 ' };
+    expect(normalizeField(t, 'spread', cfg3).spread).toBe('3.5');
+    expect(normalizeField(t, 'memoX', cfg3).memoX).toBe('車道側');
+    expect(normalizeField(t, 'spread', cfg).spread).toBe(' ３．５ '); // 設定にない欄は触らない
+  });
+});
+
+describe('健全度を現場で付けない業務（設定 noGrade）', () => {
+  it('健全度が空欄でも未入力にしない。選択肢は空の一覧でよい', async () => {
+    const { missingFields } = await import('../src/core/rules.js');
+    const t = P('a', { ...full, grade: '' });
+    expect(missingFields(t, cfg)).toContain(cfg.gradeLabel);
+    const cfg4 = { ...structuredClone(cfgJson), noGrade: true };
+    expect(missingFields(t, cfg4)).toEqual([]);
+    cfg4.options.grade = [];
+    expect(validateConfig(cfg4).errors).toEqual([]);
+    expect(validateConfig({ ...cfg4, noGrade: false }).ok).toBe(false);
+  });
+});

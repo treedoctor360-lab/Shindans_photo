@@ -24,7 +24,7 @@ export function missingFields(tree, cfg) {
     if (d.required && matches(tree, d.when, cfg) && !String(tree[d.field] ?? '').trim()) m.push(d.label);
   });
   if (!tree.initialNeeded) m.push(cfg.initial.label);
-  if (tree.initialNeeded === cfg.initial.no && !tree.grade) m.push(cfg.gradeLabel);
+  if (!cfg.noGrade && tree.initialNeeded === cfg.initial.no && !tree.grade) m.push(cfg.gradeLabel); // noGrade：健全度を現場で付けない業務では聞かない
   const treat = composeTreat(tree, cfg);
   cfg.rules
     .filter((r) => r.type === 'treatRequires' && new RegExp(r.pattern).test(treat) && !tree[r.field])

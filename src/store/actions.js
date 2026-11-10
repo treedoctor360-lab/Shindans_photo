@@ -56,6 +56,9 @@ export function normalizeField(t, field, cfg) {
   if (field === 'treeNo') return { ...t, treeNo: toHalf(t.treeNo).toUpperCase().trim() };
   if (field === 'species') return { ...t, species: normalizeSpecies(t.species, cfg) };
   if (['height', 'branchLen', 'branchDia', 'deadBranchCount'].includes(field)) return { ...t, [field]: toHalf(t[field]).trim() };
+  // 設定で足した計測の欄：数の欄は半角に、文字の欄は前後の空白を取る
+  const extra = (cfg.extraFields || []).find((f) => f.key === field);
+  if (extra) return { ...t, [field]: extra.numeric ? toHalf(t[field] ?? '').trim() : String(t[field] ?? '').trim() };
   return t;
 }
 

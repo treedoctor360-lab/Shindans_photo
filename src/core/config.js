@@ -2,6 +2,7 @@
 // 設定ファイル（業務ごとの選択肢・定型文・判定の基準など）は外から読み込むので、
 // 使う前に形を確かめる。不正なら使わず、前に使えていた設定で動かす。
 
+import { blankTree } from './tree.js';
 import { RULE_TYPES } from './rules.js';
 import { validateDetailParts } from './detailParts.js';
 import { validateKarte } from './karteCells.js';
@@ -138,10 +139,32 @@ export function validateConfig(cfg) {
   if (cfg.initialSurvey != null) validateInitialSurvey(cfg.initialSurvey, cfg, need);
   if (cfg.noteMeasures != null) validateNoteMeasures(cfg.noteMeasures, need); // 特記事項に足す寸法の1行（省略可）
   if (cfg.wording != null) validateWording(cfg.wording, need); // 表記の統一（省略可）
+  if (cfg.extraFields != null) validateExtraFields(cfg.extraFields, cfg, need); // 計測に足す欄（省略可）
   if (cfg.numbering != null) validateNumbering(cfg.numbering, need); // 追加した木に番号を順に振る（省略可）
   if (cfg.addGroups != null) validateAddGroups(cfg.addGroups, cfg, need); // まとまり（公園・路線）を現地で足す（省略可）
 
   return { ok: e.length === 0, errors: e };
+}
+
+// 計測に足す欄（例 枝張り・枝下高）。木の記録に、その key の名前で値を持つ
+//  木の記録がもともと使っている名前（番号・樹高など）・点検項目・追加で入れる項目と同じ key は使えない
+function validateExtraFields(list, cfg, need) {
+  if (!need(isArr(list) && list.every((f) => isStr(f?.key) && isStr(f?.label)), 'extraFields は [{ key, label }] の一覧にしてください')) return;
+  const taken = new Set([
+    ...Object.keys(blankTree()),
+    ...['siteType', 'area', 'uid', 'after', 'deleted', 'sent', 'updatedAt', 'rev', 'measures', 'measuresV', 'ledgerRow', 'ledgerGone', 'rowDup'],
+    ...(isArr(cfg.checks) ? cfg.checks.map((c) => c?.key) : []),
+    ...(isArr(cfg.details) ? cfg.details.map((d) => d?.field) : []),
+    ...(isArr(cfg.dbFormat?.infoKeys) ? cfg.dbFormat.infoKeys : []), // 台帳から写す場所の情報
+  ]);
+  const seen = new Set();
+  list.forEach((f) => {
+    need(/^[A-Za-z][A-Za-z0-9]*$/.test(f.key), `extraFields の key「${f.key}」は英字で始まる英数字にしてください`);
+    need(!taken.has(f.key), `extraFields の key「${f.key}」は、ほかの項目が使っている名前です`);
+    need(!seen.has(f.key), `extraFields の key「${f.key}」が重なっています`);
+    seen.add(f.key);
+    need(f.unit == null || typeof f.unit === 'string', `extraFields の ${f.key} の unit（単位）は文字にしてください`);
+  });
 }
 
 // 追加した木の番号（まとまりごとに start から順に）と、前の木から写す項目
@@ -435,7 +458,9 @@ function validateScreen(cfg, need) {
   const o = cfg.options;
   if (!need(isObj(o), 'options（選択肢）がありません')) return;
   const keys = ['vigor', 'initialNeeded', 'grade', ...(isArr(cfg.checks) ? cfg.checks.map((c) => c?.key) : [])];
-  for (const k of keys) need(isArr(o[k]) && o[k].length > 0 && o[k].every((v) => typeof v === 'string'), `options.${k}（選択肢の一覧）がありません`);
+  // noGrade（健全度を現場で付けない業務）のときは、options.grade は空の一覧でよい
+  for (const k of keys) need(isArr(o[k]) && (o[k].length > 0 || (k === 'grade' && cfg.noGrade === true)) && o[k].every((v) => typeof v === 'string'), `options.${k}（選択肢の一覧）がありません`);
+  need(cfg.noGrade == null || typeof cfg.noGrade === 'boolean', 'noGrade は true か false にしてください');
   if (isArr(o.vigor)) need(o.vigor.includes(cfg.deadVigor), 'options.vigor に deadVigor の値が入っていません');
   if (isArr(o.initialNeeded) && isObj(cfg.initial)) need(o.initialNeeded.includes(cfg.initial.yes) && o.initialNeeded.includes(cfg.initial.no), 'options.initialNeeded に initial.yes・no の値が必要です');
   if (cfg.statusOptions != null)
