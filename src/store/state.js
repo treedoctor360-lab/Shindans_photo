@@ -7,10 +7,14 @@
 //  'ledger'   … 読み込んだ台帳 { name, date, buffer }（一覧表に書き戻すときの元ファイル）
 
 import { chooseConfig } from '../core/config.js';
-import { mergeLedger, readLedger } from '../excel/ledger.js';
+import { mergeLedger, readLedger, rowPlaces } from '../excel/ledger.js';
+import { detachMoved } from './actions.js';
 import { bookKey, filledIndex, readInitialBook } from '../excel/initialBook.js';
 import { readKarteTemplate } from '../excel/karteExport.js';
 import { idbGet, idbPut } from './idb.js';
+import { placeAdded } from './order.js';
+import { initialOf } from './initial.js';
+import { simpleKey } from './surveys.js';
 
 // 保存する状態の形の版（形を変えたら上げ、migrate で古い形を直す）
 export const STATE_VERSION = 3; // 2: 確認の流れ（付箋・確定・版番号）を追加 / 3: 詳しい診断の記録（initials）を追加
@@ -33,7 +37,6 @@ export function initialState() {
     user: { role: 'surveyor', name: '' }, // この端末を使う人（'surveyor' 調査者 / 'office' 事務）
     stickies: {}, // 付箋（id → 付箋）
     confirms: {}, // 確定の印（木の鍵 → 印）
-    photos: [], // 撮った写真の記録（本体は photoDb.js の別のデータベース。core/photoShots.js）
   };
 }
 
@@ -85,7 +88,6 @@ export function migrate(s) {
     stickies: s.stickies || {},
     confirms: s.confirms || {},
     initials: Array.isArray(s.initials) ? s.initials : [],
-    photos: Array.isArray(s.photos) ? s.photos : [],
     server,
     stateVersion: STATE_VERSION,
   };
@@ -132,8 +134,30 @@ export async function readLedgerFile(name, buffer, cfg, today) {
   return { rows, sheets, info: { name, date: today, columns } };
 }
 export function applyLedger(state, parsed, cfg) {
-  const { trees, stats } = mergeLedger(state.trees, parsed.rows, cfg);
-  return { state: { ...state, trees, ledgerInfo: parsed.info }, stats, sheets: parsed.sheets };
+  // 詳しい診断の記録・付箋・確定がある木は、一覧表から消えても外さない。
+  //  ただし、一度も送っていない入力中の記録（開いただけの下書き）しかない空の木は、下書きごと外す（stats.draftsRemoved で知らせる）
+  const keepIds = new Set();
+  const draftOf = new Map(); // 木の id → 開いただけの下書き
+  for (const t of state.trees) {
+    const key = simpleKey(t, cfg);
+    const rec = cfg.initialSurvey ? initialOf(state, t, cfg) : null;
+    const marks = Object.values(state.stickies || {}).some((s) => s.treeId === key || s.treeId === `initial|${key}`) || !!state.confirms?.[key]?.value || !!state.confirms?.[`initial|${key}`]?.value;
+    const onlyDraft = rec && !rec.done && !(rec.rev > 0) && !rec.conflict;
+    if (marks || (rec && !onlyDraft)) keepIds.add(t.id);
+    else if (onlyDraft) draftOf.set(t.id, rec);
+  }
+  // 同じ番号の行が別の場所に入って、行の当たり先が変わる木（入力・記録のある木）は、先に行から外す。
+  //  読み込みで「番号＋場所の名前」が合う行に結び付き直す（別の場所の行に入力が当たらない）
+  const det = detachMoved(state, cfg, rowPlaces(parsed.rows, cfg), keepIds);
+  state = det.state;
+  const { trees, stats } = mergeLedger(state.trees, parsed.rows, cfg, { keepIds });
+  stats.rebound = det.moved;
+  const left = new Set(trees.map((t) => t.id));
+  const dropDrafts = [...draftOf].filter(([id]) => !left.has(id)).map(([, rec]) => rec);
+  stats.draftsRemoved = dropDrafts.map((r) => String(r.treeNo || ''));
+  if (dropDrafts.length) state = { ...state, initials: (state.initials || []).filter((r) => !dropDrafts.includes(r)) };
+  // 追加した木（一覧表の行がまだない木）は「どの木の次か」の位置に並べる（一覧表の最後にまとめない）
+  return { state: { ...state, trees: placeAdded(trees, cfg), ledgerInfo: parsed.info }, stats, sheets: parsed.sheets };
 }
 export async function importLedger(state, name, buffer, cfg, today) {
   return applyLedger(state, await readLedgerFile(name, buffer, cfg, today), cfg);

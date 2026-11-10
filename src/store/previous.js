@@ -82,10 +82,18 @@ export function prevOf(tree, index, cfg) {
   const sheet = cfg.dbFormat.sheets.find((s) => s.type === tree.siteType);
   const code = sheet?.code ? tree[sheet.code] : '';
   let kartes = all[prevKey(code, tree.treeNo)];
+  const no = prevKey('', tree.treeNo).split('|')[1];
   if (!kartes && !code) {
     // 場所のコードがない木（一覧にない木など）は、番号だけで1つに決まるときだけ
-    const no = prevKey('', tree.treeNo).split('|')[1];
     const hits = Object.entries(all).filter(([k]) => k.split('|')[1] === no);
+    if (hits.length === 1) kartes = hits[0][1];
+  }
+  if (!kartes && sheet?.identify && tree[sheet.identify]) {
+    // 場所のコードが合わない木（1つの公園に場所のコードが複数あり、一覧にない木を追加したときに別のコードが写った など）は、
+    // 場所の名前（公園・路線の名前）＋番号で1つに決まるときだけ
+    const place = (s) => toHalf(s || '').replace(/\s/g, '');
+    const want = place(tree[sheet.identify]);
+    const hits = Object.entries(all).filter(([k, v]) => k.split('|')[1] === no && v.some((x) => x.placeName && place(x.placeName) === want));
     if (hits.length === 1) kartes = hits[0][1];
   }
   if (!kartes?.length) return null;

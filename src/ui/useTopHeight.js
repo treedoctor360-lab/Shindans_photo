@@ -10,7 +10,8 @@ export function useTopHeight(ready) {
 
 // 入力画面の樹木番号の帯（.tree-bar）の高さを --bar-h に入れる（詳しい診断の区切りの見出しを、帯の下に止めるため）
 export function useBarHeight() {
-  useHeightVar('.tree-bar', '--bar-h', true);
+  // デスクトップ表示では簡易診断の帯も並ぶので、詳しい診断の画面の帯を測る
+  useHeightVar('.initial-form .tree-bar', '--bar-h', true);
 }
 
 function useHeightVar(selector, name, ready) {

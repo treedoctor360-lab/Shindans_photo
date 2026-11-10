@@ -80,7 +80,7 @@ describe('一覧表への書き戻し', () => {
     const mine = trees.map((t) => (t.treeNo === 'AB002' ? { ...t, ...entry } : t));
     const r = await exportDb(buf, mine, cfg);
     expect(r.errors).toEqual([]);
-    expect(r.stats).toEqual({ written: 1, appended: 0, skippedLedgerDone: [], gradeOnly: [], gradeKept: [] });
+    expect(r.stats).toEqual({ written: 1, appended: 0, skippedLedgerDone: [], gradeOnly: [], gradeKept: [], gone: [], notInLedger: [] });
 
     const wb = await load(r.buffer);
     const ws = wb.getWorksheet('公園');
@@ -126,12 +126,22 @@ describe('一覧表への書き戻し', () => {
       { ...entry, id: 'n1', siteType: 'park', treeNo: 'ZZ901', dupIndex: 1, source: 'app', parkCode: 'K05', parkName: '架空公園', status: '' },
       { ...entry, id: 'n2', siteType: 'park', treeNo: 'ZZ902', dupIndex: 1, source: 'app', parkCode: 'K05', parkName: '架空公園', status: '残存' },
     ];
-    const r = await exportDb(buf, [...trees, ...extra], cfg);
+    const r = await exportDb(buf, [...trees, ...extra], cfg, { appendAdded: true });
     expect(r.errors).toEqual([]);
     expect(r.stats.appended).toBe(2);
     const wb = await load(r.buffer);
     expect(['A7', 'D7', 'C7', 'B7'].map((a) => val(wb, '公園', a))).toEqual(['追加', 'ZZ901', '架空公園', 'K05']);
     expect(['A8', 'D8'].map((a) => val(wb, '公園', a))).toEqual(['残存', 'ZZ902']);
+  });
+
+  it('既定では、一覧表に行がない追加の木は足さずに知らせる（一覧表の並びを崩さない）', async () => {
+    const { buf, trees } = await setup();
+    const extra = [{ ...entry, id: 'n1', siteType: 'park', treeNo: 'ZZ901', dupIndex: 1, source: 'app', parkCode: 'K05', parkName: '架空公園', status: '' }];
+    const r = await exportDb(buf, [...trees, ...extra], cfg);
+    expect(r.errors).toEqual([]);
+    expect(r.stats).toMatchObject({ appended: 0, notInLedger: ['ZZ901（架空公園・ミホンカエデ）'] });
+    const wb = await load(r.buffer);
+    expect(val(wb, '公園', 'D7')).toBe('');
   });
 
   it('台帳で入力済みの木・台帳側で入力済みになっていた木は書かない', async () => {
@@ -140,7 +150,7 @@ describe('一覧表への書き戻し', () => {
     const mine = trees.map((t) => (t.treeNo === 'AB001' && t.siteType === 'park' && t.dupIndex === 1 ? { ...t, ...entry, source: 'app' } : t));
     const r = await exportDb(buf, mine, cfg);
     expect(r.errors).toEqual([]);
-    expect(r.stats).toEqual({ written: 0, appended: 0, skippedLedgerDone: ['AB001'], gradeOnly: [], gradeKept: [] });
+    expect(r.stats).toEqual({ written: 0, appended: 0, skippedLedgerDone: ['AB001'], gradeOnly: [], gradeKept: [], gone: [], notInLedger: [] });
   });
 
   it('台帳で入力済みの行（紙から手で入力した行）には、健全度が空欄のときだけ詳しい診断の結果を書く。他のセルは元のまま', async () => {
@@ -274,7 +284,7 @@ describe('追加した木の番号が、台帳の別の場所の木と同じと�
 
   it('台帳の行（別の場所）には書かず、末尾に足す。照合に通る', async () => {
     const { buf, trees } = await setup();
-    const r = await exportDb(buf, [...trees, added], cfg);
+    const r = await exportDb(buf, [...trees, added], cfg, { appendAdded: true });
     expect(r.errors).toEqual([]);
     expect(r.stats).toMatchObject({ written: 0, appended: 1 });
     const wb = await load(r.buffer);
@@ -284,7 +294,7 @@ describe('追加した木の番号が、台帳の別の場所の木と同じと�
 
   it('足した後の一覧表にもう一度書き戻すときは、足した行（同じ場所）を見つける（二重に足さない）', async () => {
     const { buf, trees } = await setup();
-    const first = await exportDb(buf, [...trees, added], cfg);
+    const first = await exportDb(buf, [...trees, added], cfg, { appendAdded: true });
     const r = await exportDb(first.buffer, [...trees, added], cfg);
     expect(r.errors).toEqual([]);
     expect(r.stats).toMatchObject({ appended: 0, skippedLedgerDone: ['AB002'] });
@@ -382,8 +392,8 @@ describe('【再発防止】外部リンク（別のブックを指す名前付�
   });
 });
 
-describe('【再現】読み込み直した台帳で番号が変わった木（前の番号 → 別の番号）', () => {
-  it('出力の知らせに、どの公園・路線の木か（場所の名前・樹種）と、番号が変わった可能性を出す', async () => {
+describe('【再現】読み込み直した台帳で番号が変わった木（RD0724？ → 別の番号）', () => {
+  it('一覧表には書かず、出力は止めずに、どの公園・路線の木か（場所の名前・樹種）を知らせる', async () => {
     const { buf, trees } = await setup();
     // AB002 をアプリで入力した後、台帳の AB002 の番号が AB009 に直された
     const entered = trees.map((t) => (t.treeNo === 'ＡＢ００２' || t.treeNo === 'AB002' ? { ...t, ...entry, source: 'app' } : t));
@@ -395,7 +405,68 @@ describe('【再現】読み込み直した台帳で番号が変わった木（�
     const gone = again.find((t) => t.ledgerGone);
     expect(gone).toMatchObject({ source: 'app', parkName: '架空公園' });
     const r = await exportDb(buf2, again, cfg);
-    expect(r.buffer).toBeFalsy();
-    expect(r.errors.join('\n')).toMatch(/AB002（架空公園・ミホンカエデ）：読み込んだときにあった行が、一覧表に見つかりません（読み込み直した一覧表にこの番号がありません/);
+    expect(r.errors).toEqual([]);
+    expect(r.buffer).toBeTruthy(); // 照合（書いていない行が変わっていない）も通る
+    expect(r.stats.gone).toEqual(['AB002（架空公園・ミホンカエデ）']);
+    // 末尾に足していない
+    expect(r.stats.appended).toBe(0);
+  });
+});
+
+describe('【再現】現場で追加した木の行を、事務が一覧表に差し込んでから読み込み直す（指示どおりの順に並べる）', () => {
+  // 台帳にない木 AB050 を現場で追加した。事務が一覧表の「架空公園」の先頭に AB050 の行を差し込み、通しNo.に「現存」と書いた
+  const added = { ...entry, id: 'new:5', uid: 'dev-5', siteType: 'park', treeNo: 'AB050', dupIndex: 1, source: 'app', status: '現存', parkCode: 'K01', parkName: '架空公園', species: 'ミホンカエデ' };
+  async function withRow(species = 'ミホンカエデ') {
+    const wb = await load(await makeLedger());
+    const ws = wb.getWorksheet('公園');
+    ws.spliceRows(3, 0, ['現存', 'K01', '架空公園', 'AB050', species]);
+    return wb.xlsx.writeBuffer();
+  }
+
+  it('追加した木を差し込んだ行に結び付け、一覧表の順（公園の先頭）に並ぶ。追加の印（uid）は変わらない', async () => {
+    const { trees } = await setup();
+    const buf2 = await withRow();
+    const { rows } = await readLedger(buf2, cfg);
+    const { trees: again, stats } = mergeLedger([...trees, added], rows, cfg);
+    const a = again.filter((t) => t.treeNo === 'AB050');
+    expect(a).toHaveLength(1); // 二重にならない
+    expect(a[0]).toMatchObject({ uid: 'dev-5', done: true, source: 'app' });
+    expect(a[0].ledgerRow).toBeTruthy();
+    expect(again.findIndex((t) => t.treeNo === 'AB050')).toBe(0); // 公園の先頭
+    expect(stats.addedBound).toEqual(['AB050']);
+    expect(stats.addedLeft).toEqual([]);
+    // 一覧表には差し込んだ行に書き、末尾に足さない。通しNo.（現存）は事務が書いたまま
+    const r = await exportDb(buf2, again, cfg);
+    expect(r.errors).toEqual([]);
+    expect(r.stats).toMatchObject({ written: 1, appended: 0 });
+    const out = await load(r.buffer);
+    expect(['A3', 'D3', 'L3'].map((x) => val(out, '公園', x))).toEqual(['現存', 'AB050', '並']);
+  });
+
+  it('樹種が台帳と違えば知らせる。行を差し込む前は「結び付かなかった追加の木」として知らせる', async () => {
+    const { trees } = await setup();
+    const { rows } = await readLedger(await withRow('ベツノキ'), cfg);
+    expect(mergeLedger([...trees, added], rows, cfg).stats.speciesDiff).toEqual(['AB050（アプリ「ミホンカエデ」／台帳「ベツノキ」）']);
+    const { rows: before } = await readLedger(await makeLedger(), cfg);
+    expect(mergeLedger([...trees, added], before, cfg).stats.addedLeft).toEqual(['AB050']);
+  });
+
+  it('差し込んだ台帳を先に読み込んだ端末が、後から追加した木を受け取っても二重にならない', async () => {
+    const { applyPull } = await import('../src/store/sync.js');
+    const { rows } = await readLedger(await withRow(), cfg);
+    const onB = mergeLedger([], rows, cfg).trees; // この端末は追加した木をまだ知らない → 空の AB050 がある
+    expect(onB.filter((t) => t.treeNo === 'AB050')).toHaveLength(1);
+    // 別の端末で結び付けた追加の木（台帳の行の情報つき）を受け取る
+    const bound = mergeLedger([added], rows, cfg).trees.find((t) => t.uid === 'dev-5');
+    const { simpleKey } = await import('../src/store/surveys.js');
+    const st = { trees: onB, initials: [], stickies: {}, confirms: {}, server: { lastSeq: 0 } };
+    const { id, ...data } = bound;
+    const got = applyPull(st, [{ kind: 'tree', treeId: simpleKey(bound, cfg), rev: 3, data }], 1, cfg).state;
+    const a = got.trees.filter((t) => t.treeNo === 'AB050');
+    expect(a).toHaveLength(1);
+    expect(a[0]).toMatchObject({ uid: 'dev-5', done: true });
+    // 台帳を読み込み直しても二重にならない（受け取る前に空の木と両方あった場合も）
+    const both = [...onB, { ...bound, id: 'srv:x' }];
+    expect(mergeLedger(both, rows, cfg).trees.filter((t) => t.treeNo === 'AB050')).toHaveLength(1);
   });
 });

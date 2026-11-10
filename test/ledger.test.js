@@ -29,7 +29,7 @@ describe('台帳の取り込み', () => {
   it('入力済みの木は台帳の値で読み取り専用にし、未入力の木は情報だけ入れる', async () => {
     const { rows } = await readLedger(await makeLedger(), cfg);
     const { trees, stats } = mergeLedger([], rows, cfg);
-    expect(stats).toEqual({ all: 5, done: 1, conflicts: 0, duplicates: ['AB001'] });
+    expect(stats).toEqual({ all: 5, done: 1, conflicts: 0, duplicates: ['AB001'], addedBound: [], speciesDiff: [], addedLeft: [], goneRemoved: [], goneKept: [], goneBlank: [], placeMoved: [] });
 
     const t1 = trees.find((t) => t.siteType === 'park' && t.treeNo === 'AB001');
     expect(t1).toMatchObject({
@@ -120,5 +120,74 @@ describe('【再発防止】台帳の木の番号が書き換えられた後に�
     expect(isAddedTree(other)).toBe(true);
     expect(isAddedTree(again[0])).toBe(false);
     expect(again[0].ledgerGone).toBeUndefined();
+  });
+});
+
+describe('【再現】一覧表から消えた木のうち、アプリで入力していない台帳の写しは外す（PI0385 の件）', () => {
+  it('台帳で入力済みの写しは外し、台帳から作った木・アプリで入力した木・控えのある木は残して知らせる', async () => {
+    const { rows } = await readLedger(await makeLedger(), cfg);
+    const first = mergeLedger([], rows, cfg).trees;
+    // 番号が書き換わって今の台帳にない、という状態を作る（行は同じ、番号だけ別）
+    const gone = (t, extra) => ({ ...t, treeNo: `${t.treeNo}X`, ...extra });
+    const [a, b, c, d] = first;
+    const trees = [
+      gone(a, { source: 'ledger', done: true }), // 台帳で入力済みの写し → 外す
+      gone(b, { height: '5' }), // 台帳から作った木にアプリで何か書いた（入力中）→ 残す
+      gone(c, { source: 'app', done: true, vigor: '1', rev: 2 }), // アプリで入力した → 残す
+      gone(d, { source: 'ledger', done: true, appBackup: { vigor: '1' } }), // アプリの入力の控えがある → 残す
+      ...first.slice(4),
+    ];
+    const { trees: out, stats } = mergeLedger(trees, rows, cfg);
+    const ids = out.map((t) => t.id);
+    expect(ids).not.toContain(a.id);
+    for (const t of [b, c, d]) expect(out.find((x) => x.id === t.id).ledgerGone).toBe(true);
+    expect(stats.goneRemoved).toEqual([`${a.treeNo}X`]);
+  });
+});
+
+describe('一覧表の読み込み直しで、記録を迷子にしない・持ち越さない', () => {
+  const load = async () => (await readLedger(await makeLedger(), cfg)).rows;
+  const nk = (s) => String(s).normalize('NFKC');
+  it('【再現】台帳の写しでも、詳しい診断の記録などがある木（keepIds）は、一覧表から消えても外さない', async () => {
+    const rows = await load();
+    const first = mergeLedger([], rows, cfg).trees;
+    const copy = first.find((t) => t.source === 'ledger');
+    const rest = rows.filter((r) => nk(r.values.treeNo) !== nk(copy.treeNo));
+    const without = mergeLedger(first, rest, cfg);
+    expect(without.stats.goneRemoved).toEqual([nk(copy.treeNo)]);
+    const kept = mergeLedger(first, rest, cfg, { keepIds: new Set([copy.id]) });
+    expect(kept.stats).toMatchObject({ goneRemoved: [], goneKept: [nk(copy.treeNo)] });
+    expect(kept.trees.find((t) => t.id === copy.id)).toMatchObject({ ledgerGone: true });
+  });
+  it('一覧表から消えた空の木は外す（入力のある木は残す）', async () => {
+    const rows = await load();
+    const first = mergeLedger([], rows, cfg).trees;
+    const blank = first.filter((t) => !t.done);
+    const filled = { ...blank[1], done: true, source: 'app', vigor: '良' };
+    const trees = first.map((t) => (t.id === filled.id ? filled : t));
+    const gone = [blank[0], blank[1]].map((t) => nk(t.treeNo));
+    const r = mergeLedger(trees, rows.filter((x) => !gone.includes(nk(x.values.treeNo))), cfg);
+    expect(r.stats.goneBlank).toEqual([gone[0]]);
+    expect(r.trees.some((t) => t.id === blank[0].id)).toBe(false);
+    expect(r.trees.find((t) => t.id === filled.id)).toMatchObject({ ledgerGone: true, done: true });
+  });
+  it('【再現】同じ番号の行が別の場所で上に入ったとき、空の木は前の樹種を持ち越さない。台帳の写しの樹種は台帳に従う', async () => {
+    const rows = await load();
+    const first = mergeLedger([], rows, cfg).trees;
+    const b = first.find((t) => !t.done);
+    const src = rows.find((r) => nk(r.values.treeNo) === nk(b.treeNo));
+    const done = rows.find((r) => String(r.values[cfg.dbFormat.doneKey] ?? '').trim());
+    // 同じ番号で、別の場所・別の樹種・入力済みの行を、いちばん上に入れた一覧表
+    const top = { ...done, rowNumber: 1, values: { ...done.values, treeNo: src.values.treeNo, parkName: '別の架空公園', species: 'ベツノキ' } };
+    const r = mergeLedger(first, [top, ...rows], cfg);
+    const t1 = r.trees.find((t) => nk(t.treeNo) === nk(b.treeNo) && t.dupIndex === 1);
+    expect(t1).toMatchObject({ parkName: '別の架空公園', species: 'ベツノキ', source: 'ledger' });
+    // 入力のある木が別の場所の行に当たったら知らせる
+    const filled = first.map((t) => (t.id === b.id ? { ...t, done: true, source: 'app', vigor: '良' } : t));
+    expect(mergeLedger(filled, [top, ...rows], cfg).stats.placeMoved.length).toBe(1);
+    // 台帳の写しの樹種：台帳で直されたら従う
+    const copy = first.find((t) => t.source === 'ledger');
+    const fixed = rows.map((x) => (nk(x.values.treeNo) === nk(copy.treeNo) ? { ...x, values: { ...x.values, species: 'ナオシタキ' } } : x));
+    expect(mergeLedger(first, fixed, cfg).trees.find((t) => t.id === copy.id).species).toBe('ナオシタキ');
   });
 });

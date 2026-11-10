@@ -5,6 +5,8 @@
 //   kind "s"（文）… そのまま1行
 //   kind "n"（名詞）… まとめて「A、Bあり。」の形（区切り・末尾は設定で変更可）
 
+import { fullNotesOf, measuresWithLines } from './noteMeasures.js';
+
 const BULLET = /^[・･\-\s]+/;
 
 // 特記事項の各行（行頭の「・」を外したもの）
@@ -46,14 +48,25 @@ export function toggleChip(str, chip) {
 export const freeNoteLines = (notes, cfg) => noteLines(notes).filter((l) => !chipOfLine(l, cfg));
 
 // 一覧表用の特記事項を、押した定型文から作る
-export function autoDbNote(notes, cfg) {
+//  measures（木の寸法の記録）を渡すと、特記事項に残っている寸法の1行のうち、種類に db（一覧表用の言い回し。
+//  {place} で部位）がある設定のものも名詞として入れる（例 寸法つきで入れた「建築限界越え」を一覧表にも出す）
+export function autoDbNote(notes, cfg, measures = []) {
   const fmt = cfg.dbNote;
   const sentences = [];
   const nouns = [];
+  const kinds = cfg.noteMeasures?.kinds || [];
   // 行の順（入力した順）を保つため、定型文の並びではなく特記の行の並びで回す
   for (const line of noteLines(notes)) {
     const c = chipOfLine(line, cfg);
-    if (!c) continue;
+    if (!c) {
+      const m = measures.find((x) => x?.line === line);
+      const db = m && kinds.find((k) => k.key === m.kind)?.db;
+      if (db) {
+        const text = db.replace('{place}', m.place || '');
+        if (!nouns.includes(text)) nouns.push(text);
+      }
+      continue;
+    }
     const text = c.db || c.t;
     const list = c.kind === 's' ? sentences : nouns;
     if (!list.includes(text)) list.push(text);
@@ -63,4 +76,4 @@ export function autoDbNote(notes, cfg) {
 }
 
 // 一覧表用の特記事項（手で直していれば、その文を優先する）
-export const dbNoteOf = (tree, cfg) => (tree.dbNoteManual ? tree.dbNote || '' : autoDbNote(tree.notes, cfg));
+export const dbNoteOf = (tree, cfg) => (tree.dbNoteManual ? tree.dbNote || '' : autoDbNote(fullNotesOf(tree, cfg), cfg, measuresWithLines(tree, cfg)));

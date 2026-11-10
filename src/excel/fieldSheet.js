@@ -9,15 +9,17 @@
 //
 // 図形の名前には「樹木番号|列|選択肢|選んだか」を入れておき、照合で使う。
 
+import { fullNotesOf } from '../core/noteMeasures.js';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
-import { girthOf } from '../core/calc.js';
+import { branchRatioText, girthOf } from '../core/calc.js';
 import { noteLines } from '../core/notes.js';
 import { photoFlag } from '../core/photo.js';
 import { fill, monthDay, num, toHalf } from '../core/text.js';
 import { composeTreat } from '../core/treat.js';
 import { isCheckKey, isLocked } from '../core/tree.js';
 import { cellValue } from './cell.js';
+import { fitSize } from './fitText.js';
 import { fixBorderXml, sheetFiles } from './xlsxFix.js';
 
 const EMU = 12700; // 1pt を図形の単位（EMU）にする係数
@@ -80,6 +82,11 @@ export function pageMeta(trees, cfg) {
 }
 
 // ---------- 選択肢の欄 ----------
+//  書き方（設定 fieldSheet.optionStyle）：
+//   circle（既定）… すべての選択肢を書き、選んだものを○で囲む（紙に手で書くときと同じ見た目）
+//   selected     … 選んだものだけを大きめの字で書く（selectedFontPt、既定 12pt）。
+//                  optionWidth（0〜1）で選択肢の列を細くし、細くした分を widenCol の列（例 特記事項）に足す（用紙の幅は変わらない）
+export const selectedOnly = (cfg) => cfg.fieldSheet?.optionStyle === 'selected';
 
 // 木1本の選択肢の欄：[{ col（0始まり）, field, val（選んだ値）, opts: [{ v, lines }] }]
 export function optionColumns(t, cfg) {
@@ -125,12 +132,76 @@ export function templateGeometry(ws, cfg) {
   return { colW, rowH };
 }
 
+// 列の幅を変える。細くした分・太くした分は widenCol の列で受ける。返す値：細くした列の文字（例 ["E", "F"]）
+//  - 選んだものだけを書くとき：選択肢の列を optionWidth 倍に細くする
+//  - colWidths（例 { "D": 8 }）：その列を指定の幅（Excel の列幅の数）にする。選択肢の列でも、こちらが優先
+//  - sideMarginMm（例 7.5）：印刷の左右の余白（mm）をこの値にし、狭めた分だけ用紙の枠を広げる（広げた分は widenCol へ）
+export function narrowOptionColumns(ws, cfg) {
+  const fs = cfg.fieldSheet;
+  const k = selectedOnly(cfg) ? (fs.optionWidth ?? 1) : 1;
+  const fixed = fs.colWidths || {};
+  const narrowed = [];
+  let freed = 0;
+  const setWidth = (letter, w) => {
+    const col = ws.getColumn(colIndex(letter) + 1);
+    const before = col.width ?? fs.defaultColWidth;
+    col.width = Math.round(w * 100) / 100;
+    freed += before - col.width;
+    if (col.width < before) narrowed.push(letter);
+  };
+  if (k < 1) for (const oc of fs.optionCols) if (!(oc.col in fixed)) setWidth(oc.col, (ws.getColumn(colIndex(oc.col) + 1).width ?? fs.defaultColWidth) * k);
+  for (const [letter, w] of Object.entries(fixed)) if (letter !== fs.widenCol) setWidth(letter, w);
+  if (fs.sideMarginMm != null) {
+    // 余白を狭めた分（mm）を、印刷の縮小率で割ってシートの幅に直す（mm → pt → px → 列幅の数）
+    const m = ws.pageSetup.margins || {};
+    const oldMm = ((m.left ?? 0.7) + (m.right ?? 0.7)) * 25.4;
+    const gainMm = oldMm - fs.sideMarginMm * 2;
+    const scale = (ws.pageSetup.scale || 100) / 100;
+    if (gainMm > 0) freed += ((gainMm / 25.4) * 72) / scale / 0.75 / fs.charPx;
+    ws.pageSetup.margins = { ...m, left: fs.sideMarginMm / 25.4, right: fs.sideMarginMm / 25.4 };
+  }
+  if (fs.widenCol && Math.abs(freed) > 1e-9) {
+    const col = ws.getColumn(colIndex(fs.widenCol) + 1);
+    col.width = Math.round(((col.width ?? fs.defaultColWidth) + freed) * 100) / 100;
+  }
+  return narrowed;
+}
+
+// 細くした列の原本の文字（見出しや、未入力の木の選択肢）を、枠に収まる大きさにする（最小 6pt）
+export function fitNarrowedText(ws, letters, boxOf, cfg) {
+  const fs = cfg.fieldSheet;
+  for (const L of letters)
+    for (let r = 1; r <= fs.templateRows; r++) {
+      const cell = ws.getCell(`${L}${r}`);
+      if (cell.isMerged && cell.master !== cell) continue; // 結合の2つ目以降のセル（文字は最初のセルにある）
+      const text = cellValue(cell);
+      if (typeof text !== 'string' || !text.trim()) continue;
+      const size = cell.font?.size ?? 11;
+      // 原本の文字は行の間が広めのことがあるので、枠は1割小さく見積もる
+      const box = boxOf(L, r);
+      const f = fitSize(text.replace(/^\s+|\s+$/g, ''), { width: box.width * 0.9, height: box.height * 0.9 }, size, 6);
+      if (f.size < size) own(cell).font = { ...(cell.font || {}), size: f.size };
+    }
+}
+
 // 文字の幅の目安（pt）。半角は全角の 0.55 倍
 const textWidth = (s, pt) => [...s].reduce((a, ch) => a + (/[\x20-\x7e]/.test(ch) ? 0.55 : 1) * pt, 0);
 const sum = (arr, n) => arr.slice(0, n).reduce((a, b) => a + b, 0);
 
-// 木1本（rowsPerTree 行）の図形。row0 = その木の1行目（0始まり）
-export function treeShapes(t, row0, geo, cfg) {
+// 用紙の中の木の印（図形の名前の最初に入れる）：ふつうは樹木番号。同じ用紙に同じ番号の木が2本以上あれば、
+//  2本目から「番号~2」「番号~3」とする（番号が同じでも、どの木の図形かを取り違えないように）
+export function pageTreeIds(trees) {
+  const count = new Map();
+  return trees.map((t) => {
+    const no = half(t.treeNo);
+    const n = (count.get(no) || 0) + 1;
+    count.set(no, n);
+    return n === 1 ? no : `${no}~${n}`;
+  });
+}
+
+// 木1本（rowsPerTree 行）の図形。row0 = その木の1行目（0始まり）。id = 用紙の中の木の印（pageTreeIds。省略時は樹木番号）
+export function treeShapes(t, row0, geo, cfg, id = half(t.treeNo)) {
   const fs = cfg.fieldSheet;
   const H = sum(geo.rowH.slice(row0), fs.rowsPerTree);
   const top = sum(geo.rowH, row0);
@@ -138,12 +209,25 @@ export function treeShapes(t, row0, geo, cfg) {
   for (const oc of optionColumns(t, cfg)) {
     const left = sum(geo.colW, oc.col);
     const cw = geo.colW[oc.col];
+    if (selectedOnly(cfg)) {
+      // 選んだものだけ：その木の行の真ん中に、○を付けずに書く（選んでいなければ何も書かない）
+      const o = oc.opts.find((x) => oc.val && x.v === oc.val);
+      if (!o) continue;
+      // 列の幅・木の行の高さに収まるよう、字を小さくする（最小 6pt）
+      // 太字は字の幅が広いので、字の幅は1割多めに見積もり、左右に4ptずつ空ける
+      const widest = Math.max(...o.lines.map((l) => textWidth(l, 1))) * 1.1;
+      const pt = Math.max(6, Math.min(fs.selectedFontPt ?? 12, (cw - 8) / widest, (H - 6) / (o.lines.length * 1.25)));
+      const w = Math.min(cw - 2, widest * pt + 4);
+      const h = o.lines.length * pt * 1.25 + 4;
+      shapes.push({ x: left + (cw - w) / 2, y: top + (H - h) / 2, w, h, lines: o.lines, sel: true, pt, plain: true, tag: `${id}|${oc.col}|${o.v}|1` });
+      continue;
+    }
     oc.opts.forEach((o, k) => {
       const sel = !!oc.val && oc.val === o.v;
       const w = Math.min(cw - 2, Math.max(...o.lines.map((l) => textWidth(l, fs.optionFontPt))) + 9);
       const h = o.lines.length * fs.optionLinePt + 5;
       const cy = (H * (k + 0.5)) / oc.opts.length;
-      shapes.push({ x: left + (cw - w) / 2, y: top + cy - h / 2, w, h, lines: o.lines, sel, tag: `${half(t.treeNo)}|${oc.col}|${o.v}|${sel ? 1 : 0}` });
+      shapes.push({ x: left + (cw - w) / 2, y: top + cy - h / 2, w, h, lines: o.lines, sel, tag: `${id}|${oc.col}|${o.v}|${sel ? 1 : 0}` });
     });
   }
   return shapes;
@@ -168,11 +252,12 @@ export function drawingXml(shapes, geo, font) {
     const [r1, ry1] = cellPos(sp.y, geo.rowH);
     const [c2, cx2] = cellPos(sp.x + sp.w, geo.colW);
     const [r2, ry2] = cellPos(sp.y + sp.h, geo.rowH);
-    const line = sp.sel ? '<a:ln w="15875"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln>' : '<a:ln><a:noFill/></a:ln>';
+    const circle = sp.sel && !sp.plain; // plain：選んだものだけを書くとき（○で囲まない）
+    const line = circle ? '<a:ln w="15875"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln>' : '<a:ln><a:noFill/></a:ln>';
     const runs = sp.lines
       .map(
         (l) =>
-          `<a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="ja-JP" sz="1000"${sp.sel ? ' b="1"' : ''}><a:solidFill><a:srgbClr val="000000"/></a:solidFill>` +
+          `<a:p><a:pPr algn="ctr"/><a:r><a:rPr lang="ja-JP" sz="${Math.round((sp.pt || 10) * 100)}"${sp.sel ? ' b="1"' : ''}><a:solidFill><a:srgbClr val="000000"/></a:solidFill>` +
           `<a:latin typeface="${xmlEsc(font)}"/><a:ea typeface="${xmlEsc(font)}"/></a:rPr><a:t>${xmlEsc(l)}</a:t></a:r></a:p>`,
       )
       .join('');
@@ -181,7 +266,7 @@ export function drawingXml(shapes, geo, font) {
       `<xdr:from><xdr:col>${c1}</xdr:col><xdr:colOff>${e(cx1)}</xdr:colOff><xdr:row>${r1}</xdr:row><xdr:rowOff>${e(ry1)}</xdr:rowOff></xdr:from>` +
       `<xdr:to><xdr:col>${c2}</xdr:col><xdr:colOff>${e(cx2)}</xdr:colOff><xdr:row>${r2}</xdr:row><xdr:rowOff>${e(ry2)}</xdr:rowOff></xdr:to>` +
       `<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${xmlEsc(sp.tag)}"/><xdr:cNvSpPr/></xdr:nvSpPr>` +
-      `<xdr:spPr><a:prstGeom prst="${sp.sel ? 'ellipse' : 'rect'}"><a:avLst/></a:prstGeom><a:noFill/>${line}</xdr:spPr>` +
+      `<xdr:spPr><a:prstGeom prst="${circle ? 'ellipse' : 'rect'}"><a:avLst/></a:prstGeom><a:noFill/>${line}</xdr:spPr>` +
       `<xdr:txBody><a:bodyPr vertOverflow="overflow" horzOverflow="overflow" wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="ctr" anchorCtr="1"/><a:lstStyle/>${runs}</xdr:txBody>` +
       `</xdr:sp><xdr:clientData/></xdr:twoCellAnchor>`
     );
@@ -255,8 +340,13 @@ function girthCell(t, cfg) {
 }
 
 // 枝長/枝径の欄：アプリで測った木は「枝長/枝径」、台帳の木は台帳の値
-function branchCell(t) {
-  if (num(t.branchLen)) return `${half(t.branchLen)}/${half(t.branchDia)}`;
+//  設定 fieldSheet.branchRatioLine が true なら、アプリで測った木はその下の行に比（一覧表と同じ書き方。例 25・40≦倍）を足す
+export function branchCell(t, cfg) {
+  if (num(t.branchLen)) {
+    const head = `${half(t.branchLen)}/${half(t.branchDia)}`;
+    const ratio = cfg?.fieldSheet?.branchRatioLine ? branchRatioText(t, cfg) : '';
+    return ratio === '' ? head : `${head}\n${ratio}`;
+  }
   const v = t.ledgerBranchRatio || '';
   return /^[\d.]+$/.test(v) ? parseFloat(v) : v;
 }
@@ -268,7 +358,12 @@ export async function exportFieldSheet(templateBuffer, pages, cfg, { title = '' 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(templateBuffer);
   const src = wb.worksheets[0];
+  const narrowed = narrowOptionColumns(src, cfg); // 列の幅を変える。複製の前に（複製は原本の列幅・書式を写す）
   const geo = templateGeometry(src, cfg);
+  const boxOf = cellBox(src.model.merges || [], geo); // 欄の枠（結合の範囲）の大きさ
+  fitNarrowedText(src, narrowed, boxOf, cfg);
+  const minFont = fs.minFontSize ?? 6; // 長い文を小さくするときの最小の大きさ（pt）
+  const tooLong = []; // 最小の大きさでも枠に収まらない欄 [{ page, treeNo, field }]
 
   // 先に必要な枚数だけ原本を複製する（値を書く前に）
   const model = src.model;
@@ -297,6 +392,7 @@ export async function exportFieldSheet(templateBuffer, pages, cfg, { title = '' 
     ws.getCell(h.inspector).font = { name: fs.font, size: 9 };
     ws.getCell(h.date).value = meta.date;
 
+    const ids = pageTreeIds(page.trees);
     page.trees.forEach((t, k) => {
       const r = fs.firstRow + k * fs.rowsPerTree;
       const c = fs.cells;
@@ -333,13 +429,22 @@ export async function exportFieldSheet(templateBuffer, pages, cfg, { title = '' 
       const g = girthCell(t, cfg);
       if (typeof g === 'number') write(c.girth, g, 11, false, '0.00');
       else if (g) write(c.girth, g, 9, true);
-      write(c.branch, branchCell(t), 10);
+      // 枝長/枝径：字の大きさは設定 branchFontPt（既定 10pt）。比の行を足すときは折り返し、欄の真ん中に書く
+      const b = branchCell(t, cfg);
+      write(c.branch, b, fs.branchFontPt ?? 10, typeof b === 'string' && b.includes('\n'));
+      if (typeof b === 'string' && b.includes('\n')) own(ws.getCell(`${c.branch}${r}`)).alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
       for (const L of optLetters) ws.getCell(`${L}${r}`).value = null; // 選択肢は図形で描く
-      perSheet[pi].push(...treeShapes(t, r - 1, geo, cfg));
-      write(c.note, noteLines(toHalf(t.notes)).map((x) => '・' + x).join('\n'), 9, true);
+      perSheet[pi].push(...treeShapes(t, r - 1, geo, cfg, ids[k]));
+      // 文の欄：枠に収まらなければ文字を小さくする（最小 minFont まで）
+      const writeText = (field, label, text) => {
+        const f = fitSize(text, boxOf(c[field], r), 9, minFont);
+        write(c[field], text, f.size, true);
+        if (!f.fits) tooLong.push({ page: ws.name, treeNo: half(t.treeNo), field: label });
+      };
+      writeText('note', '特記事項', noteLines(toHalf(fullNotesOf(t, cfg))).map((x) => '・' + x).join('\n'));
       write(c.initial, t.initialNeeded || '', 14);
-      write(c.treat, toHalf(composeTreat(t, cfg)), 9, true);
-      write(c.reason, t.fellingReason || '', 9, true);
+      writeText('treat', '処置', toHalf(composeTreat(t, cfg)));
+      writeText('reason', '伐採理由', t.fellingReason || '');
     });
   });
 
@@ -347,14 +452,33 @@ export async function exportFieldSheet(templateBuffer, pages, cfg, { title = '' 
   wb.lastModifiedBy = '';
   const out = await addShapes(await wb.xlsx.writeBuffer(), perSheet, geo, fs.font);
   const errors = await verifyFieldSheet(out, templateBuffer, pages, cfg);
-  return errors.length ? { buffer: null, errors, pages } : { buffer: out, errors: [], pages };
+  return errors.length ? { buffer: null, errors, pages, tooLong } : { buffer: out, errors: [], pages, tooLong };
+}
+
+// 欄の枠（結合していれば結合の範囲）の幅・高さ（pt）を返す関数を作る
+//  merges：原本の結合の一覧（"M7:M8" の形）。geo：原本の列幅・行の高さ（templateGeometry）
+export function cellBox(merges, geo) {
+  const ranges = merges.map((m) => {
+    const [a, b = a] = m.split(':');
+    const p = (x) => ({ c: colIndex(x.match(/[A-Z]+/)[0]), r: Number(x.match(/\d+/)[0]) });
+    return { a: p(a), b: p(b) };
+  });
+  return (col, row) => {
+    const c = colIndex(col);
+    const m = ranges.find((x) => c >= x.a.c && c <= x.b.c && row >= x.a.r && row <= x.b.r) || { a: { c, r: row }, b: { c, r: row } };
+    let width = 0;
+    for (let i = m.a.c; i <= m.b.c; i++) width += geo.colW[i] ?? 0;
+    let height = 0;
+    for (let i = m.a.r; i <= m.b.r; i++) height += geo.rowH[i - 1] ?? 15;
+    return { width, height };
+  };
 }
 
 // ---------- 出力後の照合 ----------
 
 // 野帳を読み直して照合する。食い違いの一覧を返す（空なら合格）
 //  1. 用紙の枚数
-//  2. 各用紙の樹木番号・樹種の並び、入力済みの木の主な値（樹高・幹周・初期・特記・処置）
+//  2. 各用紙の樹木番号・樹種の並び、入力済みの木の主な値（樹高・幹周・枝長/枝径・初期・特記・処置）
 //  3. 未入力の木の選択肢の欄が原本のまま
 //  4. ○の図形：数、この用紙の木のものか、その木の行・正しい列にあるか、選んだ選択肢と一致するか
 export async function verifyFieldSheet(outBuffer, templateBuffer, pages, cfg) {
@@ -395,18 +519,22 @@ export async function verifyFieldSheet(outBuffer, templateBuffer, pages, cfg) {
       if (h && Math.abs(Number(v(c.height)) - h) > 1e-9) errs.push(`${label} ${no}：樹高が${v(c.height)}（正しくは${h}）`);
       const g = girthCell(t, cfg);
       if (g != null && String(v(c.girth)) !== String(g)) errs.push(`${label} ${no}：幹周が「${v(c.girth)}」（正しくは「${g}」）`);
+      if (String(v(c.branch) ?? '') !== String(branchCell(t, cfg) ?? '')) errs.push(`${label} ${no}：枝長/枝径が「${v(c.branch)}」（正しくは「${branchCell(t, cfg)}」）`);
       if (String(v(c.initial)) !== String(t.initialNeeded || '')) errs.push(`${label} ${no}：初期診断の欄が一致しません`);
-      const note = noteLines(toHalf(t.notes)).map((x) => '・' + x).join('\n');
+      const note = noteLines(toHalf(fullNotesOf(t, cfg))).map((x) => '・' + x).join('\n');
       if (String(v(c.note)) !== note) errs.push(`${label} ${no}：特記事項が一致しません`);
       if (String(v(c.treat)) !== toHalf(composeTreat(t, cfg))) errs.push(`${label} ${no}：処置が一致しません`);
     });
 
     // 図形
-    const shapes = await readShapes(zip, files[i].file);
+    const shapes = await readShapes(zip, files[i].file, selectedOnly(cfg));
     const done = page.trees.filter((t) => t.done);
-    const expectN = done.reduce((a, t) => a + optionColumns(t, cfg).reduce((b, oc) => b + oc.opts.length, 0), 0);
+    // 図形の数：○で囲む書き方は選択肢の数、選んだものだけの書き方は選んだ欄の数
+    const shapesOf = (oc) => (selectedOnly(cfg) ? (oc.val && oc.opts.some((o) => o.v === oc.val) ? 1 : 0) : oc.opts.length);
+    const expectN = done.reduce((a, t) => a + optionColumns(t, cfg).reduce((b, oc) => b + shapesOf(oc), 0), 0);
     if (shapes.length !== expectN) errs.push(`${label}：選択肢の図形の数が合いません（${shapes.length}個・予定${expectN}個）`);
-    const rowOf = new Map(page.trees.map((t, k) => [half(t.treeNo), fs.firstRow - 1 + k * fs.rowsPerTree])); // 0始まり
+    const ids = pageTreeIds(page.trees);
+    const rowOf = new Map(page.trees.map((t, k) => [ids[k], fs.firstRow - 1 + k * fs.rowsPerTree])); // 用紙の中の木の印 → 1行目（0始まり）
     for (const sp of shapes) {
       const [no, col] = sp.tag.split('|');
       if (!rowOf.has(no)) {
@@ -417,8 +545,9 @@ export async function verifyFieldSheet(outBuffer, templateBuffer, pages, cfg) {
       if (sp.row < r0 || sp.row > r0 + fs.rowsPerTree - 1 || +col !== sp.col)
         errs.push(`${label} ${no}：選択肢の図形が別の場所（${sp.row + 1}行目・${sp.col + 1}列目）にあります`);
     }
-    for (const t of done) {
-      const no = half(t.treeNo);
+    for (const [k, t] of page.trees.entries()) {
+      if (!t.done) continue;
+      const no = ids[k];
       for (const oc of optionColumns(t, cfg)) {
         const sel = shapes.filter((sp) => sp.no === no && sp.colTag === oc.col && sp.sel).map((sp) => sp.v);
         const want = oc.val && oc.opts.some((o) => o.v === oc.val) ? [oc.val] : [];
@@ -430,7 +559,8 @@ export async function verifyFieldSheet(outBuffer, templateBuffer, pages, cfg) {
 }
 
 // シートの図形を読み出す：[{ tag, no, colTag, v, sel, row（0始まり）, col（0始まり）, ellipse }]
-async function readShapes(zip, sheetPath) {
+//  plain：選んだものだけを書く書き方（○で囲まない）。そのときは印（名前の最後）だけで選んだかを見る
+async function readShapes(zip, sheetPath, plain = false) {
   const base = sheetPath.split('/').pop();
   const rel = zip.file(`xl/worksheets/_rels/${base}.rels`);
   if (!rel) return [];
@@ -444,6 +574,6 @@ async function readShapes(zip, sheetPath) {
     const [no, colTag, v, s] = tag.split('|');
     const from = a.match(/<xdr:from><xdr:col>(\d+)<\/xdr:col>.*?<xdr:row>(\d+)<\/xdr:row>/);
     const ellipse = /prst="ellipse"/.test(a);
-    return { tag, no, colTag: +colTag, v, sel: s === '1' && ellipse, row: from ? +from[2] : -1, col: from ? +from[1] : -1, ellipse };
+    return { tag, no, colTag: +colTag, v, sel: s === '1' && (plain ? !ellipse : ellipse), row: from ? +from[2] : -1, col: from ? +from[1] : -1, ellipse };
   });
 }

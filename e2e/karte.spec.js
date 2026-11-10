@@ -73,4 +73,33 @@ test('カルテの様式を読み込み、入力済みの詳しい診断を確�
   await expect(page.locator('[data-testid=export-karte]')).toContainText('すべての公園・路線（入力済みの1本）');
   const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=export-karte]')]);
   expect(dl2.suggestedFilename()).toMatch(/^確認用カルテ_.+_1本_確認用_提出不可_\d{6}\.xlsx$/);
+
+  // 詳しい診断の画面の「カルテで見る」：ダウンロードしなくても、同じカルテを画面で見られる
+  await page.click('.tab:has-text("一覧")');
+  await page.click('[data-tree=AB001]');
+  await page.click('[data-testid=open-initial]');
+  await page.fill('#i-b4Detail', '1本、地上5m'); // 保存の前の入力内容でも見られる
+  await page.click('[data-testid=karte-view-open]');
+  const kv = page.locator('[data-testid=karte-view]');
+  await expect(kv.locator('[data-testid=kv-table]')).toContainText('1本、地上5m');
+  await expect(kv.locator('[data-testid=kv-table]')).toContainText('確認用（提出不可）');
+  await expect(kv.locator('[data-cell="7:3"]')).toHaveText('□無 ■有（大）');
+  await kv.locator('[data-kv-sheet="AB001_環境"]').click();
+  await expect(kv.locator('[data-testid=kv-table]')).toContainText('支柱なし');
+  await kv.locator('[data-testid=kv-close]').click();
+  await expect(kv).toHaveCount(0);
+});
+
+test('カルテの様式がない端末では「カルテで見る」で知らせる', async ({ page }) => {
+  await page.goto('./');
+  await page.fill('#s-date', '2099-05-06');
+  await page.fill('#s-insp', '試験 二郎(資格)');
+  await page.setInputFiles('[data-testid=config-file]', 'test/fixtures/sample-config.json');
+  await page.setInputFiles('[data-testid=ledger-file]', tmp('k2-ledger.xlsx', await makeLedger()));
+  await expect(page.locator('[data-testid=ledger-status] .ok')).toBeVisible();
+  await page.click('.tab:has-text("一覧")');
+  await page.click('[data-tree=AB001]');
+  await page.click('[data-testid=open-initial]');
+  await page.click('[data-testid=karte-view-open]');
+  await expect(page.locator('[data-testid=kv-error]')).toContainText('カルテの様式がありません');
 });

@@ -35,6 +35,7 @@ test('周囲長／幹周を入れると、周囲長比が決まり、入れた�
   await parts.locator('[data-part="circ.a"]').fill('13');
   await parts.locator('[data-part="circ.b"]').fill('80');
   await expect(parts.locator('[data-auto=circ]')).toHaveText('計算では＜1/3');
-  await expect(page.locator('#i-b4Detail')).toHaveValue('地上2m、周囲長比＜1/3');
+  // 「3本」は台帳の枯れ枝「有(3本)」の本数を引き継いだもの
+  await expect(page.locator('#i-b4Detail')).toHaveValue('3本、地上2m、周囲長比＜1/3');
   await expect(page.locator('[data-check=b4Detail]')).toContainText('入力した数：【13cm/80cm】');
 });

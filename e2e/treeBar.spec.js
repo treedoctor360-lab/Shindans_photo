@@ -79,8 +79,13 @@ test('詳しい診断の画面でも、スクロールしても樹木番号と�
   await expect(page.locator('[data-testid=tree-bar-no]')).toBeInViewport();
   // 上に残っている区切りの見出しは、樹木番号の帯に隠れない
   const bar = await page.locator('[data-testid=tree-bar]').boundingBox();
-  const stuck = await page.locator('.initial-form .form-body .sec > h2').evaluateAll((hs) =>
-    hs.map((h) => h.getBoundingClientRect()).filter((r) => r.top < 300 && r.bottom > 0).map((r) => r.top),
-  );
+  // 区切りの中身がまだ画面にあるもの（区切りの終わりと一緒に上へ流れていく見出しは除く）
+  const stuck = await page.locator('.initial-form .form-body .sec > h2').evaluateAll((hs, barBottom) =>
+    hs
+      .filter((h) => h.parentElement.getBoundingClientRect().bottom > barBottom + h.getBoundingClientRect().height + 4)
+      .map((h) => h.getBoundingClientRect())
+      .filter((r) => r.top < 300 && r.bottom > 0)
+      .map((r) => r.top),
+  bar.y + bar.height);
   for (const y of stuck) expect(y).toBeGreaterThanOrEqual(bar.y + bar.height - 2);
 });

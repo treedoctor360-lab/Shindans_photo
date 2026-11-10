@@ -1,6 +1,6 @@
 {
-  "name": "樹木点検 野帳（写真試作）",
-  "short_name": "野帳写真",
+  "name": "樹木点検 野帳（試作）",
+  "short_name": "野帳試作",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

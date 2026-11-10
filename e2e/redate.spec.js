@@ -15,14 +15,16 @@ test('「調査日＋調査者」の組を選んで、調査日・調査者を�
   await page.click('.tab:has-text("一覧")');
   await page.click('[data-tree=AB002]');
   await page.fill('#f-species', 'テストノキ');
+  // 保存ボタンの近くに、記録される調査日・調査者が出る（今日でなければ知らせる）
+  await expect(page.locator('[data-testid=session-stamp]')).toContainText('調査日 2099/05/06・調査者 試験 二郎(資格)');
+  await expect(page.locator('[data-testid=session-today]')).toBeVisible();
   await page.click('[data-testid=save-stay]');
   const ask = page.locator('text=未入力のまま保存する');
   if (await ask.isVisible()) await ask.click();
   await expect(page.locator('.toast')).toContainText('AB002 を保存しました');
-
-  // 保存ボタンの近くに、記録される調査日・調査者が出る（今日でなければ知らせる）
-  await expect(page.locator('[data-testid=session-stamp]')).toContainText('調査日 2099/05/06・調査者 試験 二郎(資格)');
-  await expect(page.locator('[data-testid=session-today]')).toBeVisible();
+  // 入力済みの木は、直して保存しても元の調査日・調査者のまま（そう知らせる）
+  await expect(page.locator('[data-testid=session-stamp]')).toContainText('入力済みなので、保存しても調査日 2099/05/06・調査者 試験 二郎(資格) のまま');
+  await expect(page.locator('[data-testid=session-today]')).toHaveCount(0);
 
   await page.click('.tab:has-text("一覧")');
   await page.click('[data-testid=redate-open]');

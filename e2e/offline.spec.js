@@ -40,3 +40,8 @@ test('【再発防止】アプリを新しくしても、同じドメインの�
     .toEqual(expect.arrayContaining(['other-app-v3']));
   await expect.poll(async () => (await page.evaluate(() => caches.keys())).includes('shindansphoto-v0')).toBe(false);
 });
+
+test('版の横に作った日時が出る（新しい版になったかを見分ける）', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.getByTestId('app-version')).toHaveText(/^v\d+\.\d+\.\d+（\d\d\/\d\d \d\d:\d\d）$/);
+});

@@ -3,16 +3,21 @@ import { useState } from 'react';
 import { branchRatioRaw, branchRatioText, girthOf, heightRatioOf } from '../core/calc.js';
 import { groupLabel, treesOfGroup } from '../core/groups.js';
 import { dbNoteOf, freeNoteLines, isChipLine, noteLines, toggleChip } from '../core/notes.js';
-import { appendNoteLine } from '../core/noteMeasures.js';
+import { freeNotesOf, toMeasuresV2 } from '../core/noteMeasures.js';
 import NoteMeasures from './NoteMeasures.jsx';
 import SessionStamp from './SessionStamp.jsx';
 import { photoFlag, photoPlan } from '../core/photo.js';
 import { alertsOf, missingFields } from '../core/rules.js';
 import { num, toHalf } from '../core/text.js';
+import { simpleKey } from '../store/surveys.js';
 import { composeTreat } from '../core/treat.js';
 import { isDead, isLocked } from '../core/tree.js';
 import {
+  addTree,
   deleteTree,
+  numberNoteLines,
+  renumberToAdded,
+  setAddedPlace,
   fillChecksNone,
   isAddedTree,
   normalizeField,
@@ -26,10 +31,9 @@ import {
   withdrawTree,
 } from '../store/actions.js';
 import { activeGroup } from './ListView.jsx';
-import { INITIAL_STATUS_LABEL, inBook, initialOf, initialStatus, isInitialTarget } from '../store/initial.js';
+import { INITIAL_STATUS_LABEL, inBook, initialOf, initialStatus, isInitialTarget, syncInitialOfTree } from '../store/initial.js';
 import InitialPrompt, { openInitialWith } from './InitialPrompt.jsx';
 import PrevPanel from './PrevPanel.jsx';
-import PhotoShots from './PhotoShots.jsx';
 import ReviewPanel from './ReviewPanel.jsx';
 
 const MODE_TEXT = { 'full+weak': '全景＋弱点写真', shared: '全景と共用', fullOnly: '全景だけ（写真で見えない弱点のみ）' };
@@ -123,12 +127,14 @@ function InitialBlock({ t, state, cfg, openInitial }) {
   );
 }
 
-export default function FormView({ state, update, config: cfg, toast, send, getState }) {
+export default function FormView({ state, update, config: cfg, toast, send }) {
   const [showAllChips, setShowAllChips] = useState(false);
   const [missingAsk, setMissingAsk] = useState(null); // 保存しようとしたときの未入力の一覧
   const [asking, setAsking] = useState(null); // 確かめ中のボタン { alertId, act }
   const [undo, setUndo] = useState(null); // 直前の操作を取り消すための、押す前の木 { treeId, before, label }
   const [askRemove, setAskRemove] = useState(''); // 削除・入力の取り消しを確かめ中の木の id
+  const [renum, setRenum] = useState(null); // 「現地の番号に変える」の入力中：{ no, drop: [特記から消す行] }
+  const [askGirth, setAskGirth] = useState(''); // 値の入った幹周を減らすか確かめ中の木の id
   const [askAfter, setAskAfter] = useState('next'); // 未入力を確かめ中の保存の行き先
 
   if (!cfg || !state.trees.length) {
@@ -206,7 +212,7 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
     // 詳しい診断が必要な木なら、次の木の画面で「続けて入力」を聞く（同じ木のままなら、画面の「詳しい診断を入力」から開ける）
     const prompt = after !== 'stay' && cfg.initialSurvey?.forms && isInitialTarget(r.state.trees.find((x) => x.id === t.id) || t, cfg) ? t.id : '';
     // 保存は「その時点の最新の状態」に対して行う（画面を描いた後に送受信で届いた変更を、古い状態で上書きしないように）
-    update((cur) => ({ ...saveTree({ ...cur, currentId: t.id, group }, cfg, { force: true, after }).state, initialPrompt: prompt }), { now: true }).then(() => send?.()); // 端末に保存してから、裏でサーバーへ送る
+    update((cur) => ({ ...syncInitialOfTree(saveTree({ ...cur, currentId: t.id, group }, cfg, { force: true, after }).state, t.id, cfg), initialPrompt: prompt }), { now: true }).then(() => send?.()); // 端末に保存してから、裏でサーバーへ送る
     toast(`${toHalf(t.treeNo) || 'この木'} を保存しました`);
     if (after !== 'stay') window.scrollTo(0, 0); // 同じ木のままなら、見ていた所から続けて直せるよう動かさない
   };
@@ -252,6 +258,7 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
   // 表示する値
   const sheet = cfg.dbFormat.sheets.find((s) => s.type === t.siteType);
   const place = [groupLabel(state.trees, group, cfg), t.place].filter(Boolean).join('　');
+  const groupTrees = treesOfGroup(state.trees, group, cfg); // 同じ公園・路線の木（追加した木の並びを選ぶ）
   const g = girthOf(t, cfg);
   const hd = heightRatioOf(t, cfg);
   const blr = isDead(t, cfg) ? null : branchRatioRaw(t);
@@ -266,8 +273,9 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
   const topAlerts = alerts.filter((a) => a.acts?.some((x) => ['resurvey', 'useApp'].includes(x.type)));
   const otherAlerts = alerts.filter((a) => !topAlerts.includes(a));
   const chipsShow = cfg.noteChipsShow ?? 10;
-  const lines = noteLines(t.notes);
-  const free = freeNoteLines(t.notes, cfg);
+  const freeNotes = freeNotesOf(t, cfg); // 文字の欄に出す文（寸法の1行は下の一覧に出す）
+  const lines = noteLines(freeNotes);
+  const free = freeNoteLines(freeNotes, cfg);
   const strongWords = cfg.rules.filter((r) => r.type === 'contains').flatMap((r) => r.anyOf);
   const treeNoRule = cfg.rules.find((r) => r.type === 'treeNoPattern');
   const badNo = !!t.treeNo && treeNoRule && !new RegExp(treeNoRule.pattern).test(toHalf(t.treeNo));
@@ -349,7 +357,13 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
               />
               {!isAddedTree(t) && (
                 <small className="hint" data-testid="treeno-locked">
-                  台帳の木の番号は変えられません。別の木を入れるときは、一覧の「一覧にない木を追加」を使います。
+                  台帳の木の番号は変えられません。現地の番号札が違うときは、下の「現地の番号に変える」を使います。
+                </small>
+              )}
+              {t.renamedFrom && (
+                <small className="hint" data-testid="renamed-from">
+                  一覧表では {toHalf(t.renamedFrom.treeNo)}
+                  {t.renamedFrom.dupIndex > 1 ? `（${t.renamedFrom.dupIndex}本目）` : ''} の行。内勤さんがその行の番号を直すと結び付きます
                 </small>
               )}
             </div>
@@ -435,15 +449,47 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
                 ))}
               </div>
               <div className="sub">
-                <button type="button" className="more" onClick={() => change((x) => ({ ...x, girths: [...x.girths, ''] }))}>
+                <button type="button" className="more" data-testid="girth-add" onClick={() => change((x) => ({ ...x, girths: [...x.girths, ''] }))}>
                   ＋ 幹を追加
                 </button>
                 {t.girths.length > 1 && (
-                  <button type="button" className="more" onClick={() => change((x) => ({ ...x, girths: x.girths.slice(0, -1) }))}>
+                  <button
+                    type="button"
+                    className="more"
+                    data-testid="girth-remove"
+                    onClick={() => {
+                      // 最後の幹周が空ならすぐ減らす。値が入っていれば、消してよいか確かめる（押し間違えで消さない）
+                      if (toHalf(t.girths.at(-1) ?? '').trim()) return setAskGirth(t.id);
+                      change((x) => ({ ...x, girths: x.girths.slice(0, -1) }));
+                    }}
+                  >
                     − 1本減らす
                   </button>
                 )}
               </div>
+              {askGirth === t.id && t.girths.length > 1 && (
+                <div className="alert danger" data-testid="girth-remove-ask">
+                  <span>
+                    {t.girths.length}本目（{toHalf(t.girths.at(-1)).trim()}m）を消しますか？
+                  </span>
+                  <div className="acts">
+                    <button
+                      type="button"
+                      className="btn fill"
+                      data-testid="girth-remove-ok"
+                      onClick={() => {
+                        setAskGirth('');
+                        change((x) => ({ ...x, girths: x.girths.slice(0, -1) }));
+                      }}
+                    >
+                      消す
+                    </button>
+                    <button type="button" className="btn" data-testid="girth-remove-cancel" onClick={() => setAskGirth('')}>
+                      やめる
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <div className="grid2">
@@ -554,7 +600,7 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
           {/* 特記事項は枯死の木でも書ける（点検項目だけを原則空欄にする） */}
           <div className="row" style={{ paddingTop: 8 }}>
             <label className="lbl" htmlFor="f-notes">
-              特記事項（野帳） <small>タップで追加・もう一度で削除。寸法なども書く</small>
+              特記事項（野帳） <small>タップで追加・もう一度で削除。寸法は下の「寸法を入れる」で</small>
             </label>
             <div className="chips" data-testid="note-chips">
               {cfg.noteChips.map((c, i) =>
@@ -563,7 +609,7 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
                     key={c.t}
                     type="button"
                     className={`chip${lines.some((l) => isChipLine(c, l)) ? ' on' : ''}`}
-                    onClick={() => change((x) => ({ ...x, notes: toggleChip(x.notes, c) }))}
+                    onClick={() => change((x) => { const v = toMeasuresV2(x, cfg); return { ...v, notes: toggleChip(v.notes, c) }; })}
                   >
                     {c.t}
                   </button>
@@ -575,8 +621,17 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
                 定型文をもっと見る（{cfg.noteChips.length - chipsShow}件）
               </button>
             )}
-            <textarea id="f-notes" rows={4} value={t.notes} placeholder="1行に1項目（音声入力も可）" onChange={(e) => setField('notes', e.target.value)} />
-            <NoteMeasures cfg={cfg} tree={t} onAdd={(line, m) => change((x) => ({ ...x, notes: appendNoteLine(x.notes, line), measures: [...(x.measures || []), m] }))} />
+            <textarea
+              id="f-notes"
+              rows={4}
+              value={freeNotes}
+              placeholder="1行に1項目（音声入力も可）"
+              onChange={(e) => {
+                const v = e.target.value;
+                change((x) => ({ ...toMeasuresV2(x, cfg), notes: v })); // 寸法の1行は文字に入れない（新しい形に移す）
+              }}
+            />
+            <NoteMeasures cfg={cfg} tree={t} onChange={(fn) => change(fn)} readOnly={readOnly} />
             <label className="lbl" htmlFor="f-dbnote" style={{ marginTop: 6 }}>
               一覧表用の特記 <small>{t.dbNoteManual ? '手入力' : '定型文から自動で作成'}</small>
             </label>
@@ -647,7 +702,7 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
         <Alerts list={otherAlerts} onAct={onAct} asking={asking} onAsk={(a, act) => setAsking({ alertId: a.id, act })} onCancel={() => setAsking(null)} />
 
         <div className="sec">
-          <h2>写真</h2>
+          <h2>写真（デジカメで撮影）</h2>
           <div className="plan" data-testid="photo-plan">
             {plan.mode === 'pending'
               ? `${cfg.vigorLabel}などを入力すると、必要な写真を判定します`
@@ -677,11 +732,6 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
           </div>
         </div>
       </fieldset>
-
-      {/* 写真を撮る・見る（入力の欄の外に置く：事務の端末でも見られるように。撮るのは入力できる木だけ） */}
-      <div className="sec">
-        <PhotoShots t={t} plan={plan} state={state} update={update} getState={getState} config={cfg} toast={toast} send={send} canShoot={!readOnly} />
-      </div>
 
       {undo?.treeId === t.id && (
         <div className="alert info" data-testid="undo">
@@ -720,7 +770,7 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
             </div>
           )
         )}
-        {!readOnly && <SessionStamp state={state} update={update} />}
+        {!readOnly && <SessionStamp state={state} update={update} kept={t.done ? { date: t.date, inspector: t.inspector } : null} />}
         {/* 追加した木は台帳の並びの外にあるので、「次の木」に進まない（台帳の別の木を開いてしまわないように） */}
         {!readOnly && !isAddedTree(t) && (
           <button type="button" className="btn fill big" onClick={() => onSave(false)}>
@@ -745,6 +795,110 @@ export default function FormView({ state, update, config: cfg, toast, send, getS
         )}
         {sheet && <span className="hint" style={{ textAlign: 'center' }}>{sheet.label}</span>}
       </div>
+
+      {/* 並び：追加した木は「どの木の次か」。一覧表の行の木は、この木の次に追加・現地の番号に変える */}
+      {/* 台帳で入力済みの木（読み取り専用）の次にも追加できる */}
+      {surveyor && !officeView && !t.deleted && (
+        <div className="sec" data-testid="place-tools">
+          <h2>並び・番号</h2>
+          {isAddedTree(t) && !readOnly && (
+            <div className="row">
+              <label className="lbl" htmlFor="f-after">
+                並び（野帳・一覧で、どの木の次に出すか）
+              </label>
+              <select
+                id="f-after"
+                value={(groupTrees.find((x) => x.id !== t.id && simpleKey(x, cfg) === t.after) || {}).id || ''}
+                onChange={(e) => update((cur) => setAddedPlace(cur, cfg, t.id, e.target.value), { now: true }).then(() => send?.())}
+                data-testid="after-select"
+              >
+                <option value="">{groupLabel(state.trees, group, cfg)}の最後</option>
+                {groupTrees
+                  .filter((x) => x.id !== t.id && !x.deleted)
+                  .map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {toHalf(x.treeNo) || '(番号なし)'}
+                      {x.dupIndex > 1 ? `（${x.dupIndex}本目）` : ''} {x.species || ''} の次
+                    </option>
+                  ))}
+              </select>
+              <small className="hint">一覧表に行がまだない間の並びです。内勤さんに渡す「差し込む行の一覧」にもこの位置で出ます。</small>
+            </div>
+          )}
+          <div className="acts">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                update((cur) => addTree({ ...cur, group }, cfg, { afterId: t.id, area: t.area || '' }), { now: true });
+                window.scrollTo(0, 0);
+              }}
+              data-testid="add-after"
+            >
+              この木の次に木を追加
+            </button>
+            {!isAddedTree(t) && !readOnly && t.source === 'app' && !renum && (
+              <button type="button" className="btn" onClick={() => setRenum({ no: '', drop: [] })} data-testid="renumber">
+                現地の番号に変える
+              </button>
+            )}
+          </div>
+          {renum && (
+            <div className="alert info" data-testid="renumber-ask">
+              <span>
+                一覧表の {toHalf(t.treeNo)} の行には入力せず、入力した内容を現地の番号の木に移します（並びはこのまま。詳しい診断の記録・付箋も移ります）。内勤さんが一覧表のこの行の番号を現地の番号に直して読み込むと、その行に結び付きます。
+              </span>
+              <label className="lbl" htmlFor="f-renum">
+                現地の番号
+              </label>
+              <input
+                id="f-renum"
+                type="text"
+                className="num"
+                autoCapitalize="characters"
+                value={renum.no}
+                onChange={(e) => {
+                  const no = e.target.value;
+                  setRenum({ no, drop: numberNoteLines(t, no) });
+                }}
+              />
+              {numberNoteLines(t, renum.no).map((l) => (
+                <label key={l} className="check">
+                  <input
+                    type="checkbox"
+                    checked={renum.drop.includes(l)}
+                    onChange={(e) => setRenum({ ...renum, drop: e.target.checked ? [...renum.drop, l] : renum.drop.filter((x) => x !== l) })}
+                  />
+                  特記事項から消す：{l}
+                </label>
+              ))}
+              <div className="acts">
+                <button
+                  type="button"
+                  className="btn fill"
+                  onClick={() => {
+                    try {
+                      renumberToAdded(state, cfg, t.id, renum.no, { dropLines: renum.drop }); // できないときはここで止まる（知らせを出す）
+                      const now = Date.now();
+                      update((cur) => renumberToAdded(cur, cfg, t.id, renum.no, { dropLines: renum.drop, now }), { now: true }).then(() => send?.());
+                      setRenum(null);
+                      toast(`${toHalf(renum.no).toUpperCase()} に変えました`);
+                    } catch (e) {
+                      toast(e.message);
+                    }
+                  }}
+                  data-testid="renumber-ok"
+                >
+                  変える
+                </button>
+                <button type="button" className="btn" onClick={() => setRenum(null)}>
+                  やめる
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {canRemove &&
         (askRemove === t.id ? (

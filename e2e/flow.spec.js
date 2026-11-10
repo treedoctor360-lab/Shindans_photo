@@ -56,6 +56,9 @@ test('台帳を読み込み、2本入力して、野帳と一覧表を出力で�
   const heads = await page.locator('[data-testid=out-table] thead th').allTextContents();
   expect(heads.slice(0, 6)).toEqual(['連番', '公園コード', '公園名', '木の番号', '樹種', '調査日']);
   expect(heads).not.toContain('メモ');
+  // 右端に特記事項の全文（一覧表にない列。色を変える）
+  expect(heads[heads.length - 1]).toBe('特記事項（全文）');
+  await expect(page.locator('[data-testid=out-table] tbody tr:has-text("AB002") [data-testid=out-note-full]')).toContainText('枝の偏り');
   expect(await page.locator('[data-testid=out-table] tbody tr').first().locator('td').nth(3).textContent()).toBe('AB001');
   const [fieldDl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=export-field]')]);
   await expect(page.locator('.toast')).toContainText('検査OK');

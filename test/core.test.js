@@ -173,6 +173,19 @@ describe('注意・提案', () => {
     expect(ids(T({ treatSel: ['伐採'], fellingReason: '枯死' }))).not.toContain('fellReason');
     expect(ids(T({ grade: 'D' }))).toContain('gradeTreat');
   });
+  it('特記事項に寸法の1行があるのに、その点検項目が「無」なら知らせる（1行を消した・手で書き換えた寸法は数えない）', () => {
+    const m = { kind: 'decay', place: '幹', values: {}, line: '幹の腐朽：H1m' };
+    const hit = alertsOf(T({ decay: '無', notes: '・幹の腐朽：H1m', measures: [m] }), cfg).find((x) => x.id === 'measureCheck');
+    expect(hit.msg).toBe('特記事項に寸法がありますが、腐朽が「無」です。確かめてください。');
+    expect(ids(T({ decay: '有', notes: '・幹の腐朽：H1m', measures: [m] }))).not.toContain('measureCheck');
+    expect(ids(T({ decay: '無', notes: '・幹の腐朽：H2m', measures: [m] }))).not.toContain('measureCheck');
+    expect(ids(T({ decay: '', notes: '・幹の腐朽：H1m', measures: [m] }))).not.toContain('measureCheck'); // 未選択は入力漏れで知らせる
+  });
+  it('規則 measureNeedsCheck の形を確かめる', () => {
+    const c = structuredClone(cfg);
+    c.rules.find((r) => r.id === 'measureCheck').items = [{ kinds: 'decay', field: 'decay' }];
+    expect(validateConfig(c).errors.join('\n')).toContain('measureCheck');
+  });
   it('弱点写真が上限を超えたら知らせる', () => {
     const t = T({ vigor: '良', deadBranch: '有', decay: '有', fungus: '有' });
     expect(alertsOf(t, cfg).find((x) => x.id === 'photoOver').msg).toBe('弱点写真は2枚までです。');

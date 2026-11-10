@@ -122,3 +122,20 @@ describe('入力の操作', () => {
     expect([r.currentId, r.view]).toEqual(['new:1', 'form']);
   });
 });
+
+describe('【再現】入力済みの木を後日直しても、元の調査日・調査者のまま（PI0945 の件）', () => {
+  it('初めて保存したときだけ今の調査日・調査者を入れ、入力済みの木を直して保存しても変えない', () => {
+    const t = P('a', full);
+    let s = state([t, P('b')]);
+    s = saveTree(s, cfg, { after: 'stay' }).state;
+    expect(s.trees[0]).toMatchObject({ date: '2099-05-06', inspector: '試験 二郎' });
+    // 別の日・別の人の端末で直す
+    s = { ...s, session: { date: '2099-06-01', inspector: '試験 三郎' }, trees: s.trees.map((x) => (x.id === 'a' ? { ...x, height: '9' } : x)) };
+    s = saveTree(s, cfg, { after: 'stay' }).state;
+    expect(s.trees[0]).toMatchObject({ height: '9', date: '2099-05-06', inspector: '試験 二郎' });
+    // 入力の取り消しで未入力に戻した木を保存し直すときは、今の調査日・調査者
+    s = { ...s, trees: s.trees.map((x) => (x.id === 'a' ? { ...x, done: false } : x)) };
+    s = saveTree(s, cfg, { after: 'stay' }).state;
+    expect(s.trees[0]).toMatchObject({ date: '2099-06-01', inspector: '試験 三郎' });
+  });
+});

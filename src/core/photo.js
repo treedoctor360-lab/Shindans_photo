@@ -56,11 +56,12 @@ export function photoPlan(tree, cfg) {
   // 寸法の1行：弱点写真の名前、なければ「部位の種類」
   const mLines = measureNoteNames(tree, cfg);
   mLines.forEach((m) => addExtra(m.name));
-  // 手で書いた行（寸法の1行を除く）：その文
+  // 手で書いた行（寸法の1行を除く）：その文。「幹の腐朽：地上1m、…」のように「：」があれば、その前だけを名前にする
+  //  （寸法の1行を手で直した行・前の形で書いた寸法の行が、長い名前にならないように）
   const isMeasure = (l) => mLines.some((m) => m.line === l);
   freeNoteLines(tree.notes, cfg)
     .filter((l) => !isMeasure(l))
-    .forEach(addExtra);
+    .forEach((l) => addExtra(l.split(/[：:]/)[0] || l));
 
   // 現場で撮る写真：弱点写真などの枠（なければ全景）＋特記事項の写真
   const shoot = extra.length ? [...(plan.slots.length ? plan.slots : [full]), ...extra] : plan.slots;

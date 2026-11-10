@@ -54,7 +54,9 @@ const labelOf = (k, cfg, survey = SIMPLE) =>
   k;
 export function conflictDiff(t, cfg, survey = SIMPLE) {
   const theirs = t.conflict?.data || {};
-  const keys = [...new Set([...Object.keys(t), ...Object.keys(theirs)])].filter((k) => !SKIP.has(k));
+  // 内部の値（数値の欄の中身・手で直した印・寸法の写しなど）は出さない。数値の違いは、組み立てた文（詳細）の行で分かる
+  const inner = (k) => /Parts$|Manual$/.test(k) || ['measureSig', 'dateFix', 'measuresV', 'renamedTo', 'renamedFrom', 'after', 'appBackup', 'ledgerRow'].includes(k);
+  const keys = [...new Set([...Object.keys(t), ...Object.keys(theirs)])].filter((k) => !SKIP.has(k) && !inner(k));
   const show = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
   return keys.filter((k) => show(t[k]) !== show(theirs[k])).map((k) => ({ key: k, label: labelOf(k, cfg, survey), mine: show(t[k]), theirs: show(theirs[k]) }));
 }

@@ -37,38 +37,12 @@ export function makeFakeGas({ passphrase = 'ひみつ', bound = true } = {}) {
     return api;
   };
 
-  // フォルダ：名前と子のフォルダを持つ（写真の置き場所を確かめるため、ファイルには置いたフォルダの道筋を付ける）
-  const folders = new Map();
-  const makeFolder = (name, path = name) => {
-    const id = `folder${folders.size + 1}`;
-    const kids = new Map();
-    const fo = {
-      getId: () => id,
-      getName: () => name,
-      path,
-      createFile: (blob) => makeFile(blob.bytes, blob.name, path),
-      createFolder: (n) => {
-        const k = makeFolder(n, `${path}/${n}`);
-        kids.set(n, k);
-        return k;
-      },
-      getFoldersByName: (n) => {
-        let done = !kids.has(n);
-        return { hasNext: () => !done, next: () => ((done = true), kids.get(n)) };
-      },
-    };
-    folders.set(id, fo);
-    return fo;
-  };
-
-  const makeFile = (bytes, name, folder = '') => {
+  const makeFile = (bytes, name) => {
     const id = `file${++fileSeq}`;
     const f = {
       bytes,
       name,
-      folder,
       trashed: false,
-      getSize: () => bytes.length,
       getId: () => id,
       getName: () => name,
       getLastUpdated: () => new Date('2099-01-01T00:00:00Z'),
@@ -120,11 +94,8 @@ export function makeFakeGas({ passphrase = 'ひみつ', bound = true } = {}) {
         if (!files.has(id)) throw new Error('ファイルがありません');
         return files.get(id);
       },
-      getFolderById: (id) => {
-        if (!folders.has(id)) throw new Error('フォルダがありません');
-        return folders.get(id);
-      },
-      getRootFolder: () => ({ createFolder: (n) => makeFolder(n) }),
+      getFolderById: () => ({ createFile: (blob) => makeFile(blob.bytes, blob.name) }),
+      getRootFolder: () => ({ createFolder: () => ({ getId: () => 'folder1', createFile: (blob) => makeFile(blob.bytes, blob.name) }) }),
     },
     Utilities: {
       base64Decode: (s) => [...Buffer.from(s, 'base64')],
@@ -144,5 +115,5 @@ export function makeFakeGas({ passphrase = 'ひみつ', bound = true } = {}) {
     const out = context.doPost({ postData: { contents: init.body } });
     return { ok: true, status: 200, json: async () => JSON.parse(out.text) };
   };
-  return { context, fetchFn, props, sheets, files, folders, lib: context.module.exports };
+  return { context, fetchFn, props, sheets, files, lib: context.module.exports };
 }

@@ -9,9 +9,10 @@
 import { branchRatioCell, branchRatioRaw, girthOf, heightRatioOf } from '../core/calc.js';
 import { num, toHalf } from '../core/text.js';
 import { isDead } from '../core/tree.js';
-import { buildDetail, checkNumbers, detailKeyOfItem, manualKeyOf, partsKeyOf, partsOf } from '../core/detailParts.js';
+import { buildDetail, checkNumbers, circled, detailKeyOfItem, entriesOf, itemValueOf, manualKeyOf, partsKeyOf, partsOf, unchosenEntries } from '../core/detailParts.js';
 import { fixWording, wordingIssues } from '../core/wording.js';
-import { measuresToInitial } from '../core/noteMeasures.js';
+import { freeNotesOf, measureLinesOf, measuresToInitial, measuresWithLines, namesFromMeasures, splitNames } from '../core/noteMeasures.js';
+import { chipOfLine, noteLines } from '../core/notes.js';
 import { bookKey } from '../excel/initialBook.js';
 import { INITIAL, initialKey, simpleKey, updateRecord } from './surveys.js';
 import { touched } from './actions.js';
@@ -106,9 +107,18 @@ export function karteRecords(state, records, cfg) {
   return records.map((r) => {
     const tree = state.trees.find((t) => `initial|${simpleKey(t, cfg)}` === initialKey(r, cfg)) || null;
     const out = { ...r, ...karteExtras(tree, r, cfg) };
+    const fromM = tree ? measuresToInitial(tree, cfg).values : {};
     for (const it of weak) {
       const dk = detailKeyOf(it);
-      const nums = checkNumbers(r[partsKeyOf(dk)], partsOf(it, cfg));
+      const pk = partsKeyOf(dk);
+      // 文に出さない数（例 周囲長／幹周）を写す設定にする前に作った記録は、その数を持っていない。
+      //  詳細の文が寸法から作った文のまま（手で直していない）なら、寸法の数で補って確認用に出す
+      let vals = r[pk];
+      if (fromM[pk] && vals && !r[manualKeyOf(dk)] && String(r[dk] ?? '') === String(fromM[dk] ?? '')) {
+        vals = { ...vals };
+        for (const p of partsOf(it, cfg)) if (p.noText && vals[p.name] === undefined && fromM[pk][p.name] !== undefined) vals[p.name] = fromM[pk][p.name];
+      }
+      const nums = checkNumbers(vals, partsOf(it, cfg));
       if (nums.length) out[dk] = `${r[dk] || ''}【${nums.join('、')}】`;
     }
     return out;
@@ -149,6 +159,134 @@ export function bookValues(entry, cfg) {
   return v;
 }
 
+// ---------- 簡易診断の寸法を、後から写す ----------
+//  記録を作ったときに写した寸法は、その後に簡易診断で足したり直したりしても写らない。
+//  そこで、写した時点の寸法の写し（measureSig）と今の寸法を比べ、変わった・まだ写していない弱点の項目を知らせる。
+//  写すのは人がボタンを押したときだけ（初期診断で手で直した内容を、黙って置き換えないため）
+const sigOf = (v) => JSON.stringify(v ?? null);
+
+// 簡易診断の寸法と、詳しい診断の弱点の詳細の関係。返す形：[{ key: 詳細の項目, label, follow, differs, simpleText }]
+//  follow：詳しい診断の画面で直していない（写した時点のまま）→ 簡易診断の寸法に自動で合わせる
+//  differs：今の詳細が簡易診断の寸法と違う（follow でないときは「簡易の寸法と違います」と出す）
+//  簡易診断で消した寸法（前に写したもの）も入る（follow なら詳細を消す）
+export function measureStatus(rec, tree, cfg) {
+  if (!rec || !tree) return [];
+  const ms = measuresToInitial(tree, cfg);
+  const keys = [...new Set([...ms.keys, ...Object.keys(rec.measureSig || {})])];
+  return keys.map((dk) => {
+    const pk = partsKeyOf(dk);
+    const now = sigOf(ms.values[pk]);
+    const sig = rec.measureSig?.[dk];
+    const mine = sigOf(rec[pk]);
+    const blank = isEmpty(rec[dk]) && rec[pk] == null; // 詳しい診断で何も入れていない
+    const follow = !rec[manualKeyOf(dk)] && (sig !== undefined ? mine === sig : blank || mine === now);
+    // 違うのは、簡易診断に入っている値と食い違うときだけ（初期で足した欄・箇所は違いにしない）。簡易で消した寸法は、詳細が残っていれば違い
+    const differs = dk in ms.values ? conflicts(rec[pk], ms.values[pk]) : rec[pk] != null || !isEmpty(rec[dk]);
+    const item = itemByDetailKey(cfg, dk);
+    return { key: dk, label: item?.label || dk, follow, differs, simpleText: ms.values[dk] || '' };
+  });
+}
+
+// 詳しい診断で直していない項目を、簡易診断の寸法に合わせた記録を返す。返す形：{ record, changed: [弱点の名前…] }
+export function syncMeasures(rec, tree, cfg) {
+  // ついてくる項目は、中身全体が簡易診断と同じでなければ写し直す（簡易で消した欄も消すため、differs ではなく全体で比べる）
+  const ms = measuresToInitial(tree, cfg);
+  const whole = (dk) => sigOf(rec[partsKeyOf(dk)]) !== sigOf(ms.values[partsKeyOf(dk)]) || String(rec[dk] ?? '') !== String(ms.values[dk] ?? '');
+  const keys = measureStatus(rec, tree, cfg)
+    .filter((x) => x.follow && (whole(x.key) || rec.measureSig?.[x.key] === undefined))
+    .map((x) => x.key);
+  if (!keys.length) return { record: rec, changed: [] };
+  const next = applyMeasures(rec, tree, cfg, keys);
+  // 中身が同じ（印を付けただけ）なら、変わったことにしない
+  const changed = keys.filter((dk) => sigOf(next[partsKeyOf(dk)]) !== sigOf(rec[partsKeyOf(dk)]) || String(next[dk] ?? '') !== String(rec[dk] ?? ''));
+  return { record: next, changed: changed.map((dk) => itemByDetailKey(cfg, dk)?.label || dk) };
+}
+
+// 値が入っているか（空の文字・null は入っていない。false は「付けない」を選んだので入っている）
+const filled = (v) => v != null && String(v).trim() !== '';
+const same = (a, b) => toHalf(String(a ?? '')).trim() === toHalf(String(b ?? '')).trim();
+
+// 簡易診断の値（simple）のうち、詳しい診断の値（mine）と食い違うものがあるか。
+//  簡易に入っている欄ごとに比べる（箇所の並び more・大きさの並びも、何番目かで比べる）。簡易にない欄・箇所が初期にあっても違いにしない
+function conflicts(mine, simple) {
+  if (simple && typeof simple === 'object') {
+    return Object.keys(simple).some((k) => conflicts(mine && typeof mine === 'object' ? mine[k] : undefined, simple[k]));
+  }
+  if (!filled(simple)) return false;
+  return mine && typeof mine === 'object' ? true : !same(mine, simple);
+}
+
+// 詳しい診断の値に、簡易診断に入っている値だけを上書きした値（初期で足した欄・箇所は残す）
+function mergeValues(mine, simple) {
+  if (Array.isArray(simple)) {
+    const base = Array.isArray(mine) ? mine : [];
+    return Array.from({ length: Math.max(base.length, simple.length) }, (_, i) => (i < simple.length ? mergeValues(base[i], simple[i]) : structuredClone(base[i])));
+  }
+  if (simple && typeof simple === 'object') {
+    const base = mine && typeof mine === 'object' && !Array.isArray(mine) ? mine : {};
+    const out = structuredClone(base);
+    for (const k of Object.keys(simple)) out[k] = mergeValues(base[k], simple[k]);
+    return out;
+  }
+  return filled(simple) ? simple : mine;
+}
+
+// 「簡易に合わせる」を押したときに変わる所（押す前に見せる）。返す形：{ before: 今の詳細の文, after: 合わせた後の文 }
+export function matchPreview(rec, tree, cfg, dk) {
+  const next = applyMeasures(rec, tree, cfg, [dk], { merge: true });
+  return { before: String(rec[dk] ?? ''), after: String(next[dk] ?? '') };
+}
+
+// 寸法を写す（keys の項目だけ）。簡易診断で消した寸法なら、詳細を消す
+//  merge：「簡易に合わせる」のとき。簡易に入っている値だけを置き換え、初期で足した欄・箇所は残す。
+//         merge でない（自動で合わせる。初期で直していない項目）ときは、簡易の値をそのまま写す（簡易で消した欄も消える）
+export function applyMeasures(rec, tree, cfg, keys, { merge = false } = {}) {
+  const ms = measuresToInitial(tree, cfg);
+  const next = { ...rec, measureSig: { ...(rec.measureSig || {}) } };
+  for (const dk of keys) {
+    const pk = partsKeyOf(dk);
+    delete next[manualKeyOf(dk)]; // 手で直した文の印を外す（写した数値から文を作り直す）
+    if (!(dk in ms.values)) {
+      delete next[pk];
+      next[dk] = '';
+      delete next.measureSig[dk];
+      continue;
+    }
+    next.measureSig[dk] = sigOf(ms.values[pk]);
+    const item = merge && rec[pk] != null ? itemByDetailKey(cfg, dk) : null;
+    if (item) {
+      next[pk] = mergeValues(rec[pk], ms.values[pk]);
+      next[dk] = buildDetail(next[pk], partsOf(item, cfg), cfg);
+      const iv = itemValueOf(item, next[pk], cfg); // 有無の選択肢も数値から決まる項目（例 開口空洞）
+      if (iv) next[item.key] = iv;
+    } else {
+      next[dk] = ms.values[dk];
+      next[pk] = structuredClone(ms.values[pk]);
+      const ch = ms.choices?.[dk]; // 有無の選択肢も数値から決まる項目（例 開口空洞）
+      if (ch) next[ch.key] = ch.value;
+    }
+    next.inherited = [...new Set([...(rec.inherited || []), dk])];
+  }
+  return next;
+}
+
+// 簡易診断の木を保存した後などに、その木の詳しい診断の記録を簡易診断の寸法に合わせる（記録がなければそのまま）
+export function syncInitialOfTree(state, treeId, cfg) {
+  if (!cfg.initialSurvey?.fromMeasures?.length) return state;
+  const tree = state.trees.find((t) => t.id === treeId);
+  const rec = tree && initialOf(state, tree, cfg);
+  if (!rec) return state;
+  const r = syncMeasures(rec, tree, cfg);
+  // 中身が変わったときだけ直す（印だけ付けて送り直したり、確定を外したりしない）
+  return r.changed.length ? updateInitial(state, rec.id, () => r.record) : state;
+}
+
+function itemByDetailKey(cfg, dk) {
+  for (const form of Object.values(cfg.initialSurvey?.forms || {}))
+    for (const sec of form.sections || []) for (const it of sec.items || []) if (it.type === 'weak' && detailKeyOfItem(it) === dk) return it;
+  return null;
+}
+
 // 記録を作る（すでにあれば何もしない）。返す形：{ state, record, created }
 //  元の木を見分ける項目（シートの種類・番号・何本目・uid）と場所の情報を写し、簡易診断の値を引き継ぐ
 //  ブックで入力済みの木は、force を付けたときだけ作る。そのときはブックの値を下書きにする（引き継ぎより優先）
@@ -166,7 +304,12 @@ export function startInitial(state, tree, cfg, { now = new Date().toISOString(),
   const ms = measuresToInitial(tree, cfg);
   const measureKeys = ms.keys.filter((dk) => !(dk in fromBook));
   const fromMeasures = {};
-  for (const dk of measureKeys) Object.assign(fromMeasures, { [dk]: ms.values[dk], [partsKeyOf(dk)]: ms.values[partsKeyOf(dk)] });
+  for (const dk of measureKeys) {
+    Object.assign(fromMeasures, { [dk]: ms.values[dk], [partsKeyOf(dk)]: ms.values[partsKeyOf(dk)] });
+    const ch = ms.choices?.[dk]; // 有無の選択肢も数値から決まる項目（例 開口空洞の芯到達・周囲長比）。ブックに値があればブック
+    if (ch && !(ch.key in fromBook)) fromMeasures[ch.key] = ch.value;
+  }
+  if (measureKeys.length) fromMeasures.measureSig = Object.fromEntries(measureKeys.map((dk) => [dk, sigOf(ms.values[partsKeyOf(dk)])]));
   const record = {
     id: `ini:${tree.id}`,
     ...copy,
@@ -210,13 +353,19 @@ const NONE = (cfg) => cfg.initialSurvey?.noneValue || '無';
 
 // 「この区切りはすべて無」：区切りの中の、まだ選んでいない選択肢の項目に「無」を入れる（選んである項目は変えない）
 //  項目に設定 noneValue（例「支柱なし」）があれば、「無」の代わりにその値を入れる（物そのものが無いときの選択肢）
-//  返す形：{ record, keys: [入れた項目…], custom: noneValue を入れた項目があったか }
+//  詳細が入っている弱点の項目（簡易診断の寸法から写った・手で書いた）は「無」にしない（有無を選んでもらう）
+//  返す形：{ record, keys: [入れた項目…], custom: noneValue を入れた項目があったか, kept: [詳細があるので残した項目の名前…] }
 export function fillNone(record, section, cfg, optionsFor) {
   const keys = [];
+  const kept = [];
   const next = { ...record };
   let custom = false;
   for (const it of section.items) {
     if (!['choice', 'weak'].includes(it.type) || !isEmpty(next[it.key])) continue;
+    if (it.type === 'weak' && !isEmpty(next[detailKeyOf(it)])) {
+      kept.push(it.label);
+      continue;
+    }
     const opts = optionsFor(it) || [];
     const value = it.noneValue && opts.includes(it.noneValue) ? it.noneValue : NONE(cfg);
     if (!opts.includes(value)) continue;
@@ -224,7 +373,132 @@ export function fillNone(record, section, cfg, optionsFor) {
     keys.push(it.key);
     if (value !== NONE(cfg)) custom = true;
   }
-  return { record: next, keys, custom };
+  return { record: next, keys, custom, kept };
+}
+
+// 入力の食い違いの注意（保存のときに確かめる。返す形：[文…]）
+//  1. 弱点の項目に詳細（寸法など）が入っているのに、有無が「無」か未選択
+//  2. 簡易診断で「有」の点検項目に対応する詳しい診断の項目が、どれも「有」になっていない
+//     （設定 initialSurvey.crossCheck：[{ field: 簡易診断の項目, eq: 値 か [値…], items: [詳しい診断の弱点の項目…], label? }]）
+export function initialWarnings(record, tree, cfg) {
+  const out = [];
+  if (!record) return out;
+  const items = new Map();
+  for (const form of Object.values(cfg.initialSurvey?.forms || {}))
+    for (const sec of form.sections || [])
+      for (const it of sec.items || []) if (it.type === 'weak') items.set(it.key, { it, name: `${String(sec.title || '').split('・').pop()}の${it.label}` });
+  const isYes = (it, v) => !isEmpty(v) && v !== NONE(cfg) && v !== it.noneValue;
+  for (const { it, name } of items.values()) {
+    if (isEmpty(record[detailKeyOf(it)]) || isYes(it, record[it.key])) continue;
+    out.push(`${name}：詳細が入っていますが「${isEmpty(record[it.key]) ? '未選択' : record[it.key]}」です`);
+  }
+  // 必ず選ぶ印（例 芯達か芯未達か）を選んでいない箇所（「有」の項目だけ。子実体だけの箇所は除く）
+  for (const { it, name } of items.values()) {
+    if (!isYes(it, record[it.key])) continue;
+    const parts = partsOf(it, cfg);
+    const miss = unchosenEntries(record[partsKeyOf(detailKeyOf(it))], parts);
+    if (!miss.length) continue;
+    const labels = parts.filter((p) => p.type === 'flag' && p.required === true).map((p) => `${p.label}か${p.offLabel || `${p.label}でない`}か`);
+    const where = entriesOf(record[partsKeyOf(detailKeyOf(it))]).length > 1 ? miss.map((i) => circled(i)).join('') + 'の' : '';
+    out.push(`${name}：${where}${labels.join('・')}を選んでください`);
+  }
+  // 組になる項目（例 支柱の2項目）：どれかが決まった値（例「支柱なし」）なのに、ほかが別の値
+  const labelOf = new Map();
+  for (const form of Object.values(cfg.initialSurvey?.forms || {})) for (const sec of form.sections || []) for (const it of sec.items || []) labelOf.set(it.key, it.label);
+  for (const rule of cfg.initialSurvey?.linked || []) {
+    const hit = rule.items.find((k) => record[k] === rule.value);
+    if (!hit) continue;
+    for (const k of rule.items)
+      if (k !== hit && !isEmpty(record[k]) && record[k] !== rule.value)
+        out.push(`${labelOf.get(hit) || hit}が「${rule.value}」ですが、${labelOf.get(k) || k}は「${record[k]}」です`);
+  }
+  for (const rule of cfg.initialSurvey?.crossCheck || []) {
+    const v = tree?.[rule.field];
+    if (!tree || isEmpty(v) || ![].concat(rule.eq).includes(v)) continue;
+    const targets = rule.items.map((k) => items.get(k)).filter(Boolean);
+    if (!targets.length || targets.some(({ it }) => isYes(it, record[it.key]))) continue;
+    const label = rule.label || cfg.checks?.find((c) => c.key === rule.field)?.label || rule.field;
+    out.push(`簡易診断で${label}が「${v}」ですが、${targets.map((x) => x.name).join('・')}${targets.length > 1 ? 'のどれも' : 'が'}「有」になっていません`);
+  }
+  // 簡易診断の特記事項（定型文）・⑦などの入力が、詳しい診断に反映されていない（設定 noteCheck）
+  for (const x of simpleNotesStatus(record, tree, cfg)) if (x.state === 'missing') out.push(`簡易診断の「${x.text}」：${x.note}`);
+  return out;
+}
+
+// 簡易診断の特記事項（と⑦などの入力）が、詳しい診断に反映されているか。詳しい診断の画面の一覧と、保存の前の注意に使う
+//  返す形：[{ text, kind, state, note }]（反映されていないものを先に）
+//    kind：measure（寸法の1行）・chip（定型文）・field（簡易診断の項目。例 ⑦子実体の種名）・free（手で書いた行）
+//    state：missing（反映されていない）・none（写す項目がない）・ok（反映されている）・free（判断しない）
+//  設定 initialSurvey.noteCheck（省略可）：
+//    { notes: [定型文の文…], items: [項目…] }  その定型文があれば、items のどれかが「有」（選択肢の項目は「無」以外）なら反映済み
+//    { field: 簡易診断の項目, items: [弱点の項目…] }  その項目の名前（「、」区切り。details の when のときだけ。寸法の toTree から入った名前は除く）が、
+//      items のどれかの詳細の文にあれば反映済み。alias（{ 名前: [同じとみなす名前…] }）で表記の違いを同じとみなす
+export function simpleNotesStatus(record, tree, cfg) {
+  if (!tree) return [];
+  const items = itemNames(cfg);
+  const nameOf = (k) => items.get(k)?.name || k;
+  const isYes = (k) => {
+    const it = items.get(k)?.it;
+    const v = record?.[k];
+    return !isEmpty(v) && v !== NONE(cfg) && v !== it?.noneValue;
+  };
+  const label0 = cfg.initialSurvey?.label || '詳しい診断';
+  const checks = cfg.initialSurvey?.noteCheck || [];
+  const out = [];
+  // 寸法の1行：写す規則があれば、その項目に自動で写る
+  const rules = cfg.initialSurvey?.fromMeasures || [];
+  const seen = new Set();
+  for (const m of measuresWithLines(tree, cfg)) {
+    if (!m.line || seen.has(m.line)) continue;
+    seen.add(m.line);
+    const rule = rules.find((r) => r.kind === m.kind && (r.place == null || r.place === m.place));
+    out.push(rule ? { text: m.line, kind: 'measure', state: 'ok', note: `${nameOf(rule.item)}に写ります` } : { text: m.line, kind: 'measure', state: 'none', note: `${label0}に写す項目がありません` });
+  }
+  // 定型文と手で書いた行
+  for (const line of noteLines(freeNotesOf(tree, cfg))) {
+    if (seen.has(line)) continue;
+    const chip = chipOfLine(line, cfg);
+    const rule = chip && checks.find((r) => Array.isArray(r.notes) && r.notes.some((t) => t === chip.t || (chip.was || []).includes(t)));
+    if (!rule) {
+      out.push({ text: line, kind: chip ? 'chip' : 'free', state: 'free', note: chip ? '対応する項目なし（見て確かめる）' : '手で書いた行（見て確かめる）' });
+      continue;
+    }
+    const hit = rule.items.filter(isYes);
+    out.push(
+      hit.length
+        ? { text: line, kind: 'chip', state: 'ok', note: `${hit.map(nameOf).join('・')}が「有」` }
+        : { text: line, kind: 'chip', state: 'missing', note: `${rule.items.map(nameOf).join('・')}${rule.items.length > 1 ? 'のどれも' : 'が'}「有」になっていません` },
+    );
+  }
+  // 簡易診断の項目（例 ⑦子実体の種名）
+  for (const rule of checks) {
+    if (!rule.field) continue;
+    const d = (cfg.details || []).find((x) => x.field === rule.field);
+    if (d?.when && tree[d.when.field] !== d.when.eq) continue;
+    const taken = namesFromMeasures(tree, rule.field, cfg);
+    const label = rule.label || d?.label || rule.field;
+    for (const name of splitNames(tree[rule.field]).filter((x) => !taken.has(x))) {
+      // alias：同じとみなす名前（例 { "不明種": ["不明"] }）
+      const names = [name, ...((rule.alias || {})[name] || [])];
+      const inDetail = rule.items.filter((k) => names.some((n) => String(record?.[detailKeyOf(items.get(k)?.it || { key: k })] ?? '').includes(n)));
+      out.push(
+        inDetail.length
+          ? { text: `${label}：${name}`, kind: 'field', state: 'ok', note: `${inDetail.map(nameOf).join('・')}にあります` }
+          : { text: `${label}：${name}（寸法なし）`, kind: 'field', state: 'missing', note: `${label0}に写っていません。位置などを入れてください` },
+      );
+    }
+  }
+  const order = { missing: 0, none: 1, ok: 2, free: 3 };
+  return out.map((x, i) => ({ ...x, i })).sort((a, b) => order[a.state] - order[b.state] || a.i - b.i).map(({ i: _i, ...x }) => x);
+}
+
+// 入力画面の項目の名前（弱点は「区切りの名前の項目名」。例「根系の②露出根の腐朽」）
+function itemNames(cfg) {
+  const m = new Map();
+  for (const form of Object.values(cfg.initialSurvey?.forms || {}))
+    for (const sec of form.sections || [])
+      for (const it of sec.items || []) m.set(it.key, { it, name: it.type === 'weak' ? `${String(sec.title || '').split('・').pop()}の${it.label}` : it.label });
+  return m;
 }
 
 // 入力していない現場の項目（選択肢の項目だけ数える。「後で（机上）」の項目は数えない）。返す形：[項目名…]
@@ -239,24 +513,29 @@ export function missingInitial(record, cfg) {
 // 記録を1件変える（入力済みなら送り直しの印を付ける）
 export const updateInitial = (state, id, fn) => updateRecord(state, INITIAL, id, (r) => touched(fn(r)));
 
-// 保存：入力済みにして、調査日・調査者を記録する（設定 initialSurvey.stamp の項目へ）
+// 保存：入力済みにして、調査日・調査者を記録する（設定 initialSurvey.stamp の項目へ。入力済みの記録を直したときは元のまま）
 //  返す形：{ state, missing, saved }
 export function saveInitial(state, id, cfg, { force = false, now = new Date().toISOString() } = {}) {
   const r = (state.initials || []).find((x) => x.id === id);
-  if (!r) return { state, missing: [], saved: false };
+  if (!r) return { state, missing: [], warnings: [], saved: false };
   const missing = missingInitial(r, cfg);
-  if (missing.length && !force) return { state, missing, saved: false };
+  const tree = state.trees?.find((t) => `initial|${simpleKey(t, cfg)}` === initialKey(r, cfg)) || null;
+  const warnings = initialWarnings(r, tree, cfg);
+  if ((missing.length || warnings.length) && !force) return { state, missing, warnings, saved: false };
   const st = cfg.initialSurvey?.stamp || {};
   const stamp = {};
   const [y, m, d] = String(state.session?.date || '').split('-').map(Number);
-  if (st.date && y) [stamp[st.date[0]], stamp[st.date[1]], stamp[st.date[2]]] = [y, m, d];
-  if (st.inspector && state.session?.inspector) stamp[st.inspector] = state.session.inspector;
+  // 調査日・調査者は初めて入力済みにしたときだけ入れる（入力済みの記録を後日直しても元のまま）
+  const hasDate = r.done && st.date && st.date.every((k) => !isEmpty(r[k]));
+  const hasInspector = r.done && st.inspector && !isEmpty(r[st.inspector]);
+  if (st.date && y && !hasDate) [stamp[st.date[0]], stamp[st.date[1]], stamp[st.date[2]]] = [y, m, d];
+  if (st.inspector && state.session?.inspector && !hasInspector) stamp[st.inspector] = state.session.inspector;
   // 空欄のときに入れる値（項目の blank。例：枝下高がなければ「-」）
   const blanks = {};
   for (const form of Object.values(cfg.initialSurvey?.forms || {}))
     for (const sec of form.sections) for (const it of sec.items) if (it.blank != null && isEmpty(r[it.key])) blanks[it.key] = it.blank;
   const next = updateRecord(state, INITIAL, id, (x) => ({ ...x, ...blanks, ...stamp, done: true, sent: false, source: 'app', updatedAt: now }));
-  return { state: next, missing, saved: true };
+  return { state: next, missing, warnings, saved: true };
 }
 
 // ---------- 一覧表の健全度への書き戻し ----------

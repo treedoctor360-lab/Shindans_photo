@@ -40,5 +40,5 @@ test('寸法を入れる：枯れ枝（部位なし・本数は入力済みの�
   await box.locator('[data-part=branchLen]').fill('3');
   await box.locator('[data-part=max]').click();
   await box.locator('[data-testid=measure-add]').click();
-  await expect(page.locator('#f-notes')).toHaveValue('・枯れ枝：6本、地上5m、枝直径4cm、枝長3m（最大）');
+  await expect(page.locator('[data-testid=measure-line]')).toHaveText(['枯れ枝：6本、地上5m、枝直径4cm、枝長3m（最大）']);
 });

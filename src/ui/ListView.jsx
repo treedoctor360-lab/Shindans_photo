@@ -5,9 +5,7 @@ import { monthDay, toHalf } from '../core/text.js';
 import { useState } from 'react';
 import { addTree } from '../store/actions.js';
 import { REVIEW_LABEL, confirmable, initialRecordOf, reviewState, reviewStatesOf, setConfirm } from '../store/review.js';
-import { INITIAL, simpleKey } from '../store/surveys.js';
-import { photoPlan } from '../core/photo.js';
-import { shotStatus } from '../core/photoShots.js';
+import { INITIAL } from '../store/surveys.js';
 import { prevOf } from '../store/previous.js';
 import { INITIAL_STATUS_LABEL, initialStatus, isInitialTarget } from '../store/initial.js';
 import { usePrevIndex } from './usePrevious.js';
@@ -268,7 +266,7 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
           const st = treeState(t, cfg);
           const nWarn = t.done && t.source !== 'ledger' ? alertsOf(t, cfg).filter((a) => a.lv !== 'info').length : 0;
           return (
-            <button key={t.id} type="button" className="card" onClick={() => open(t.id, groupKey(t, cfg))} data-tree={toHalf(t.treeNo)}>
+            <button key={t.id} type="button" className={`card${t.id === state.currentId && state.view !== 'list' ? ' sel' : ''}`} onClick={() => open(t.id, groupKey(t, cfg))} data-tree={toHalf(t.treeNo)}>
               {st === 'todo' ? (
                 <span className="pill none">未</span>
               ) : st === 'wait' ? (
@@ -305,15 +303,6 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
                     {monthDay(t.date)} {surnames(t.inspector)}
                   </span>
                 )}
-                {/* 写真：撮った枚数／撮る枚数（足りなければ色を付ける） */}
-                {t.source !== 'ledger' && t.done && !t.deleted && (() => {
-                  const ps = shotStatus(photoPlan(t, cfg), state.photos, simpleKey(t, cfg));
-                  return ps.need > 0 ? (
-                    <span className={`tag${ps.taken < ps.need ? ' w' : ''}`} data-testid="card-photo">
-                      写真 {ps.taken}/{ps.need}
-                    </span>
-                  ) : null;
-                })()}
                 {t.appBackup && <span className="tag w">アプリ入力の控えあり</span>}
                 {t.ledgerDuplicate > 0 && <span className="tag w">番号重複</span>}
                 {t.deleted && <span className="tag w">削除</span>}
@@ -345,7 +334,7 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
           <h2>ほかの公園・路線で見つかった木（{elsewhere.length}本）</h2>
           <div className="cards">
             {elsewhere.slice(0, 30).map((t) => (
-              <button key={t.id} type="button" className="card" onClick={() => open(t.id, groupKey(t, cfg))} data-tree={toHalf(t.treeNo)}>
+              <button key={t.id} type="button" className={`card${t.id === state.currentId && state.view !== 'list' ? ' sel' : ''}`} onClick={() => open(t.id, groupKey(t, cfg))} data-tree={toHalf(t.treeNo)}>
                 <span className={`pill ${t.done ? t.grade || '' : 'none'}`}>{t.done ? t.grade || '?' : '未'}</span>
                 <span style={{ minWidth: 0 }}>
                   <span className="no">{t.treeNo || '(番号なし)'}</span>
