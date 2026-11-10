@@ -48,8 +48,28 @@ export function sheetGeometry(xml) {
     for (let i = m.c1; i <= m.c2; i++) width += colW(i);
     let height = 0;
     for (let i = m.r1; i <= m.r2; i++) height += rowH(i);
-    return { width, height };
+    return { width, height, lastRow: m.r2, lastRowHeight: rowH(m.r2) };
   };
+}
+
+// 文字の大きさ size（pt）で、幅 width（pt）に折り返して全部入る枠の高さ（pt）。linesFit の逆
+export function heightNeeded(text, size, width) {
+  return Math.ceil((linesNeeded(text, size, width) * size * 1.3 + 2) * 4) / 4 + 0.25;
+}
+
+// シートの XML の行の高さを変える。heights：Map（行の番号 → 高さ pt）。その行がなければ変えない
+//  返す形：{ xml, done: 変えた行の番号の一覧 }
+export function setRowHeights(xml, heights) {
+  const done = [];
+  const out = xml.replace(/<row\b[^>]*>/g, (tag) => {
+    const r = Number(tag.match(/\br="(\d+)"/)?.[1]);
+    if (!heights.has(r)) return tag;
+    done.push(r);
+    let t = tag.replace(/\s+ht="[^"]*"/, '').replace(/\s+customHeight="[^"]*"/, '');
+    t = t.replace(/^<row\b/, `<row ht="${heights.get(r)}" customHeight="1"`);
+    return t;
+  });
+  return { xml: out, done };
 }
 
 // 1文字の幅（文字の大きさに対する割合）。全角は 1、半角は 0.6（少し大きめに見積もる）

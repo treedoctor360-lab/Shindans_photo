@@ -100,6 +100,30 @@ describe('野帳の出力', () => {
     expect(tags.some((t) => t.startsWith('AB002'))).toBe(false);
   });
 
+  it('特記事項・処置の文が枠に収まらなければ、文字を小さくする（最小 6pt）。短い文は 9pt のまま', async () => {
+    const tpl = await makeTemplate();
+    const long = Array.from({ length: 6 }, (_, i) => `・根株の腐朽：H0～0.${i + 1}m、40×20cm、20/170`).join('\n');
+    const huge = '・長い文。'.repeat(60);
+    const pages = buildPages([doneTree('AB001', { notes: long }), doneTree('AB002'), doneTree('AB003', { notes: huge })], cfg);
+    const r = await exportFieldSheet(tpl, pages, cfg);
+    expect(r.errors).toEqual([]);
+    const ws = (await load(r.buffer)).worksheets[0];
+    expect(ws.getCell('I4').font.size).toBeLessThan(9);
+    expect(ws.getCell('I4').font.size).toBeGreaterThanOrEqual(6);
+    expect(ws.getCell('I4').alignment.wrapText).toBe(true);
+    expect(ws.getCell('I6').font.size).toBe(9);
+    expect(ws.getCell('L6').font.size).toBe(9);
+    // 6pt でも収まらない欄は知らせる（文は切らない）
+    expect(ws.getCell('I8').font.size).toBe(6);
+    expect(r.tooLong).toEqual([{ page: '1', treeNo: 'AB003', field: '特記事項' }]);
+  });
+
+  it('最小の大きさは設定で変えられる（5〜9）', () => {
+    const c = structuredClone(cfg);
+    c.fieldSheet.minFontSize = 4;
+    expect(validateConfig(c).errors.join('\n')).toContain('minFontSize');
+  });
+
   it('前回の調査の印を番号の欄に書く。印が消えていたら照合で見つける', async () => {
     const tpl = await makeTemplate();
     const pages = buildPages([doneTree('AB001', { prevMarks: ['前回詳(2090)'] }), todo('AB002', { prevNote: '前の特記', prevMarks: ['前回詳(2090)'] })], cfg);
@@ -200,5 +224,147 @@ describe('野帳の照合（不具合を見逃さないか）', () => {
     expect(s).toMatch(/A1：樹高が9.9/);
     expect(s).toMatch(/6行目：樹木番号が「A9」/);
     expect(s).toMatch(/B2：未入力の木の選択肢の欄/);
+  });
+});
+
+describe('選んだものだけを書く書き方（fieldSheet.optionStyle: selected）', () => {
+  const sel = structuredClone(cfgJson);
+  Object.assign(sel.fieldSheet, { optionStyle: 'selected', optionWidth: 0.7, widenCol: 'I', selectedFontPt: 12 });
+
+  it('選んだ選択肢だけを○なしで書き、選択肢の列を細くした分を特記事項の列に足す（用紙の幅は同じ）。照合に通る', async () => {
+    expect(validateConfig(sel).errors).toEqual([]);
+    const tpl = await makeTemplate();
+    const pages = buildPages([doneTree('AB001'), todo('AB002'), doneTree('AB003', { grade: '' })], sel);
+    const r = await exportFieldSheet(tpl, pages, sel);
+    expect(r.errors).toEqual([]);
+    const tags = (await shapeTags(r.buffer))[0];
+    // 選んだものだけ（AB003 は健全度が空なので健全度の図形はない）
+    expect(tags.sort()).toEqual(
+      ['AB001|4|並|1', 'AB001|5|有|1', 'AB001|6|有|1', 'AB001|7|無|1', 'AB001|10|B|1', 'AB001|13|有|1',
+       'AB003|4|並|1', 'AB003|5|有|1', 'AB003|6|有|1', 'AB003|7|無|1', 'AB003|13|有|1'].sort(),
+    );
+    const zip = await JSZip.loadAsync(r.buffer);
+    const xml = await zip.file('xl/drawings/drawing1.xml').async('string');
+    expect(xml).not.toContain('prst="ellipse"'); // ○で囲まない
+    expect(xml).toContain('sz="1200"');
+    // 列の幅：選択肢の列は 0.7 倍、細くした分を特記事項の列へ
+    const before = (await load(tpl)).worksheets[0];
+    const after = (await load(r.buffer)).worksheets[0];
+    const w = (ws, L) => ws.getColumn(L).width ?? sel.fieldSheet.defaultColWidth;
+    const opt = sel.fieldSheet.optionCols.map((o) => o.col);
+    for (const L of opt) expect(w(after, L)).toBeCloseTo(w(before, L) * 0.7, 1);
+    const total = (ws) => [...opt, 'I'].reduce((a, L) => a + w(ws, L), 0);
+    expect(total(after)).toBeCloseTo(total(before), 1);
+    expect(w(after, 'I')).toBeGreaterThan(w(before, 'I'));
+    // 未入力の木の選択肢の欄は原本の文字のまま
+    expect(cellValue(after.getCell('E6'))).toBe('良\n並\n枯');
+  });
+
+  it('選んだ選択肢と違う図形・○で囲んだ図形は照合で見つける', async () => {
+    const tpl = await makeTemplate();
+    const pages = buildPages([doneTree('A1')], sel);
+    const r = await exportFieldSheet(tpl, pages, sel);
+    const zip = await JSZip.loadAsync(r.buffer);
+    const path = 'xl/drawings/drawing1.xml';
+    const x = await zip.file(path).async('string');
+    zip.file(path, x.replace('name="A1|4|並|1"', 'name="A1|4|良|1"'));
+    expect((await verifyFieldSheet(await zip.generateAsync({ type: 'uint8array' }), tpl, pages, sel)).join('\n')).toMatch(/A1：vigor の○が「良」/);
+    zip.file(path, x.replace(/(name="A1\|5\|有\|1"[\s\S]*?prst=")rect/, '$1ellipse'));
+    expect((await verifyFieldSheet(await zip.generateAsync({ type: 'uint8array' }), tpl, pages, sel)).join('\n')).toMatch(/A1：\w+ の○が「なし」（正しくは「有」）/);
+  });
+});
+
+describe('列の幅・余白・枝長/枝径の比（fieldSheet.colWidths・sideMarginMm・branchFontPt・branchRatioLine）', () => {
+  const wcfg = structuredClone(cfgJson);
+  Object.assign(wcfg.fieldSheet, { optionStyle: 'selected', optionWidth: 0.8, widenCol: 'I', colWidths: { D: 8, M: 8 }, sideMarginMm: 7.5, branchFontPt: 8, branchRatioLine: true });
+  const w = (ws, L) => ws.getColumn(L).width ?? wcfg.fieldSheet.defaultColWidth;
+
+  it('決めた列の幅にし、余白を狭めた分も含めて差を特記事項の列で受ける。照合に通る', async () => {
+    expect(validateConfig(wcfg).errors).toEqual([]);
+    const tpl = await makeTemplate();
+    const r = await exportFieldSheet(tpl, buildPages([doneTree('AB001')], wcfg), wcfg);
+    expect(r.errors).toEqual([]);
+    const before = (await load(tpl)).worksheets[0];
+    const after = (await load(r.buffer)).worksheets[0];
+    expect(w(after, 'D')).toBe(8);
+    expect(w(after, 'M')).toBe(8);
+    expect(w(after, 'L')).toBe(w(before, 'L')); // 決めていない列（処置）は変えない
+    // 余白：左右 0.7in → 7.5mm。狭めた分（mm）を列の幅の数に直して足す（縮小率 100%）
+    expect(after.pageSetup.margins.left).toBeCloseTo(7.5 / 25.4, 5);
+    expect(after.pageSetup.margins.right).toBeCloseTo(7.5 / 25.4, 5);
+    const gain = ((0.7 * 2 * 25.4 - 15) / 25.4) * 72 / 0.75 / wcfg.fieldSheet.charPx;
+    const cols = 'ABCDEFGHIJKLMN'.split('');
+    const total = (ws) => cols.reduce((a, L) => a + w(ws, L), 0);
+    expect(total(after)).toBeCloseTo(total(before) + gain, 1);
+  });
+
+  it('枝長/枝径は決めた大きさで書き、下の行に比を足す（上限以上は表記の文字）。台帳の木は台帳の値のまま', async () => {
+    const tpl = await makeTemplate();
+    const ledger = doneTree('AB003', { source: 'ledger', branchLen: '', branchDia: '', ledgerBranchRatio: '12.5' });
+    const r = await exportFieldSheet(tpl, buildPages([doneTree('AB001'), doneTree('AB002', { branchLen: '300', branchDia: '8' }), ledger], wcfg), wcfg);
+    expect(r.errors).toEqual([]);
+    const ws = (await load(r.buffer)).worksheets[0];
+    expect(cellValue(ws.getCell('D4'))).toBe('200/8\n25');
+    expect(cellValue(ws.getCell('D6'))).toBe('300/8\n30倍以上');
+    expect(cellValue(ws.getCell('D8'))).toBe(12.5);
+    expect(ws.getCell('D4').font.size).toBe(8);
+    expect(ws.getCell('D4').alignment).toMatchObject({ wrapText: true, vertical: 'middle', horizontal: 'center' });
+  });
+
+  it('設定がなければ今までどおり（10pt・比なし・列の幅と余白はそのまま）', async () => {
+    const tpl = await makeTemplate();
+    const r = await exportFieldSheet(tpl, buildPages([doneTree('AB001')], cfg), cfg);
+    const ws = (await load(r.buffer)).worksheets[0];
+    expect(cellValue(ws.getCell('D4'))).toBe('200/8');
+    expect(ws.getCell('D4').font.size).toBe(10);
+    expect(w(ws, 'D')).toBe(6);
+  });
+
+  it('枝長/枝径の値が違えば照合で見つける', async () => {
+    const tpl = await makeTemplate();
+    const pages = buildPages([doneTree('AB001')], wcfg);
+    const r = await exportFieldSheet(tpl, pages, wcfg);
+    const wb = await load(r.buffer);
+    wb.worksheets[0].getCell('D4').value = '200/8';
+    expect((await verifyFieldSheet(await wb.xlsx.writeBuffer(), tpl, pages, wcfg)).join('\n')).toMatch(/AB001：枝長\/枝径が「200\/8」/);
+  });
+
+  it('【再現】細くした列で、選んだ選択肢の字と原本の見出しの字が枠からはみ出さない', async () => {
+    // 不具合：選択肢の列を細くすると、選んだ選択肢の字（12pt）と原本の見出しの字が枠からはみ出していた
+    const narrow = structuredClone(wcfg);
+    narrow.fieldSheet.optionWidth = 0.5;
+    const twb = await load(await makeTemplate());
+    twb.worksheets[0].getCell('E2').value = '樹勢の良し悪しを見る';
+    const tpl = await twb.xlsx.writeBuffer();
+    const r = await exportFieldSheet(tpl, buildPages([doneTree('AB001')], narrow), narrow);
+    expect(r.errors).toEqual([]);
+    const ws = (await load(r.buffer)).worksheets[0];
+    expect(ws.getCell('E2').font?.size ?? 11).toBeLessThan(11); // 見出しを小さくした
+    expect(ws.getCell('I2').font?.size ?? 11).toBe(11); // 広げた列の見出しはそのまま
+    // 選んだ選択肢（樹勢「並」）の字：幅を1割多めに見積もり、左右 4pt ずつ空けて列に収める
+    const xml = await (await JSZip.loadAsync(r.buffer)).file('xl/drawings/drawing1.xml').async('string');
+    const sz = Number(xml.match(/name="AB001\|4\|並\|1"[\s\S]*?sz="(\d+)"/)[1]) / 100;
+    const colPt = Math.trunc(w(ws, 'E') * narrow.fieldSheet.charPx + 5) * 0.75;
+    expect(sz).toBeLessThan(12);
+    expect(sz * 1.1 + 8).toBeLessThanOrEqual(colPt + 1e-6);
+  });
+});
+
+describe('【再現】同じ用紙に同じ番号の木が2本ある', () => {
+  // 不具合：番号が同じ木（例 台帳の木と、現場で追加した同じ番号の木）が同じ用紙にあると、
+  //  図形の名前（樹木番号）で木を見分けていたため、照合で「図形が別の場所にあります」「○が2つ」になり、保存できなかった
+  it('2本目の図形には「番号~2」の印を付け、照合に通る', async () => {
+    const tpl = await makeTemplate();
+    const pages = buildPages([doneTree('AB001'), doneTree('AB001', { id: 'x2', vigor: '良' })], cfg);
+    const r = await exportFieldSheet(tpl, pages, cfg);
+    expect(r.errors).toEqual([]);
+    const tags = (await shapeTags(r.buffer))[0];
+    expect(tags.filter((t) => t.startsWith('AB001|4|') && t.endsWith('|1'))).toEqual(['AB001|4|並|1']);
+    expect(tags.filter((t) => t.startsWith('AB001~2|4|') && t.endsWith('|1'))).toEqual(['AB001~2|4|良|1']);
+    // 1本目と2本目の図形を入れ替えたら見つける
+    const zip = await JSZip.loadAsync(r.buffer);
+    const x = await zip.file('xl/drawings/drawing1.xml').async('string');
+    zip.file('xl/drawings/drawing1.xml', x.replace('name="AB001|4|並|1"', 'name="AB001|4|良|1"'));
+    expect((await verifyFieldSheet(await zip.generateAsync({ type: 'uint8array' }), tpl, pages, cfg)).join('\n')).toMatch(/AB001：vigor の○が「良」/);
   });
 });

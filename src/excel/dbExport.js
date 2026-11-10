@@ -14,7 +14,7 @@ import { fill, num, toHalf } from '../core/text.js';
 import { composeTreat } from '../core/treat.js';
 import { isCheckKey, isLocked } from '../core/tree.js';
 import { cellValue, ymdOfCell } from './cell.js';
-import { columnMap } from './ledger.js';
+import { columnMap, rowDupOf } from './ledger.js';
 import { definedNamesXml, externalLinkParts, finishXlsx, restoreDefinedNames, restoreExternalLinks } from './xlsxFix.js';
 
 const half = (v) => toHalf(v).trim();
@@ -87,14 +87,18 @@ function indexRows(ws, map, f) {
 }
 
 // 書き戻す。返す形：{ buffer（照合に通ったときだけ）, stats, errors }
-export async function exportDb(ledgerBuffer, trees, cfg) {
+//  appendAdded：一覧表に行がない追加の木を、いちばん下に足すか（既定は足さない。足すと一覧表の並びが元と変わるため。
+//               行がない木は notInLedger で知らせ、内勤さんに「差し込む行の一覧」の位置に行を入れてもらう）
+export async function exportDb(ledgerBuffer, trees, cfg, { appendAdded = false } = {}) {
   const f = cfg.dbFormat;
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(ledgerBuffer);
   const errors = [];
   const plan = []; // 照合用：書いた行と、書いた値
   // gradeOnly：台帳で入力済みの行に健全度だけ書いた木、gradeKept：健全度が既に入っていて違う値だったので書かなかった木
-  const stats = { written: 0, appended: 0, skippedLedgerDone: [], gradeOnly: [], gradeKept: [] };
+  // gone：読み込み直した台帳にない木（番号が変わった・行が消された）。書かずに知らせる
+  // notInLedger：一覧表に行がない追加の木（足さずに知らせる）
+  const stats = { written: 0, appended: 0, skippedLedgerDone: [], gradeOnly: [], gradeKept: [], gone: [], notInLedger: [] };
 
   // 書く木：アプリで入力した木と、台帳で入力済みの木（紙から手で入力した行）のうち詳しい診断の結果（initialGrade）を付けた木
   const mine = trees.filter((t) => (t.done && t.source === 'app') || (t.source !== 'app' && t.initialGrade));
@@ -116,7 +120,7 @@ export async function exportDb(ledgerBuffer, trees, cfg) {
       // 台帳から読み込んだ木は「番号＋何本目か」の行。
       // 追加した木は、同じ番号で場所の名前も合う行（前に書き戻して足した行）。なければ末尾に足す
       //  （現地の番号札が、台帳では別の場所の木の番号だったとき、その行に書かないため）
-      let r = t.ledgerRow ? index.get(`${no}|${t.dupIndex || 1}`) : samePlaceRow(no, t);
+      let r = t.ledgerRow ? index.get(`${no}|${rowDupOf(t)}`) : samePlaceRow(no, t);
       const row = r ? ws.getRow(r) : null;
 
       if (row) {
@@ -148,10 +152,19 @@ export async function exportDb(ledgerBuffer, trees, cfg) {
         }
         stats.written++;
       } else {
-        if (t.source !== 'app' || t.dupIndex > 1 || t.ledgerRow) {
+        // 読み込み直した台帳にない木：一覧表には書かず、出力は続ける（末尾に足すと、別の番号で入力済みの行と二重になる）
+        if (t.ledgerGone) {
+          stats.gone.push(where);
+          continue;
+        }
+        if (t.source !== 'app' || rowDupOf(t) > 1 || t.ledgerRow) {
           errors.push(
             `${ws.name} ${where}：読み込んだときにあった行が、一覧表に見つかりません${t.ledgerGone ? '（読み込み直した一覧表にこの番号がありません。番号が変わったか、行が消されています。一覧の検索で「すべての公園・路線」を選んで探せます）' : ''}`,
           );
+          continue;
+        }
+        if (!appendAdded) {
+          stats.notInLedger.push(where);
           continue;
         }
         r = ++next;

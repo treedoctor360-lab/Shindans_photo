@@ -4,7 +4,7 @@ import { bookCount } from '../store/initial.js';
 import { applyLedger, loadConfigText, importInitialBook, readKarteTemplateFile, readLedgerFile, saveTemplate } from '../store/state.js';
 import PrevSection from './PrevSection.jsx';
 import { diagnosticDump } from '../store/diagnose.js';
-import { APP_VERSION } from '../version.js';
+import { APP_VERSION, BUILD_TIME } from '../version.js';
 import ServerSection from './ServerSection.jsx';
 
 // 今日の日付 "2099-04-05"（端末の時刻で）
@@ -69,7 +69,17 @@ export default function SettingsView({ state, update, config, setConfig, toast }
       toast(
         `${st.all}本を読み込みました（台帳で入力済み${st.done}本）` +
           (st.conflicts ? `。うち${st.conflicts}本はアプリでも入力済みだったため、台帳を正としました` : '') +
-          (st.duplicates.length ? `。番号の重複：${st.duplicates.join('・')}` : ''),
+          (st.duplicates.length ? `。番号の重複：${st.duplicates.join('・')}` : '') +
+          // 現場で追加した木：同じ番号・同じ場所の台帳の行に結び付けたもの、結び付かなかったもの
+          (st.addedBound?.length ? `。追加した木${st.addedBound.length}本を台帳の行に結び付けました（${st.addedBound.slice(0, 5).join('・')}${st.addedBound.length > 5 ? 'ほか' : ''}）` : '') +
+          (st.speciesDiff?.length ? `。そのうち樹種が台帳と違う木：${st.speciesDiff.slice(0, 5).join('・')}` : '') +
+          (st.addedLeft?.length ? `。台帳の行と結び付かなかった追加の木${st.addedLeft.length}本（${st.addedLeft.slice(0, 5).join('・')}${st.addedLeft.length > 5 ? 'ほか' : ''}）は、一覧表に行が入るまで書き込みません（出力の「差し込む行の一覧」を内勤さんに渡してください）` : '') +
+          (st.rebound?.length ? `。同じ番号の行が別の場所に入ったため、入力を場所の合う行に付け替えました：${st.rebound.slice(0, 5).join('・')}（中身を確かめてください）` : '') +
+          (st.placeMoved?.length ? `。【注意】同じ番号の行の場所が変わった木：${st.placeMoved.slice(0, 5).join('・')}（別の木の行に当たっていないか確かめてください）` : '') +
+          (st.goneKept?.length ? `。一覧表から消えた木のうち、詳しい診断の記録・付箋がある${st.goneKept.length}本（${st.goneKept.slice(0, 5).join('・')}）は残しました` : '') +
+          (st.goneBlank?.length ? `。一覧表から消えた空の木${st.goneBlank.length}本（${st.goneBlank.slice(0, 5).join('・')}${st.goneBlank.length > 5 ? 'ほか' : ''}）を外しました` : '') +
+          (st.draftsRemoved?.length ? `（開いただけの詳しい診断の下書き${st.draftsRemoved.length}件も外しました：${st.draftsRemoved.join('・')}）` : '') +
+          (st.goneRemoved?.length ? `。一覧表から消えた台帳の写し${st.goneRemoved.length}本（${st.goneRemoved.slice(0, 5).join('・')}${st.goneRemoved.length > 5 ? 'ほか' : ''}）を外しました` : ''),
       );
     } catch (e) {
       toast(e.message || '台帳を読み込めませんでした');
@@ -252,7 +262,7 @@ export default function SettingsView({ state, update, config, setConfig, toast }
             disabled={busy}
             testId="karte-template-file"
           />
-          <p className="hint">カルテを作るマクロの入ったブックなど、空のカルテの様式があるブックを選びます。この端末にだけ置きます（マクロは動かしません）。確認用カルテは「出力」から作ります。</p>
+          <p className="hint">カルテを作るマクロの入ったブックなど、空のカルテの様式があるブックを選びます。「サーバーに置く」で調査者の端末にも渡し、詳しい診断の画面の「カルテで見る」で使えます（マクロは動かしません）。確認用カルテは「出力」から作ります。</p>
         </div>
       )}
 
@@ -265,7 +275,7 @@ export default function SettingsView({ state, update, config, setConfig, toast }
           className="btn"
           data-testid="diagnostic"
           onClick={() => {
-            const json = JSON.stringify(diagnosticDump(state, config, APP_VERSION), null, 1);
+            const json = JSON.stringify(diagnosticDump(state, config, BUILD_TIME ? `${APP_VERSION} (${BUILD_TIME})` : APP_VERSION), null, 1);
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
             a.download = `調べるためのデータ_${todayYmd().replace(/-/g, '')}.json`;

@@ -4,7 +4,9 @@
 //
 // 本文は JSON の文字として送る（Content-Type を付けないことで、ブラウザの事前確認なしに送れる）
 
+import { isBlankLedgerTree, rowDupOf, treeKey } from '../excel/ledger.js';
 import { SURVEYS, recordsOf, surveyOfKind } from './surveys.js';
+import { placeAdded } from './order.js';
 
 // つながらなかった失敗（少し待てば通るかもしれない）。retriable の印を付ける
 //  サーバーが理由を付けて断ったもの（合言葉が違うなど）は、待っても変わらないので印を付けない
@@ -242,6 +244,9 @@ export async function pull(state, cfg, fetchFn = fetch) {
 
 // 受け取った記録を当てはめる
 //  返す形：{ state, changedTrees: [木の番号…]（他の端末で変わった木）, newStickies: 件数, conflicts: [木の番号…] }
+// 同じ台帳の行（シートの種類・番号・何本目か）の木か
+const sameLedgerRow = (a, b) => treeKey(a.siteType, a.treeNo, rowDupOf(a)) === treeKey(b.siteType, b.treeNo, rowDupOf(b));
+
 export function applyPull(state, records, lastSeq, cfg) {
   // 種類ごとに、記録の配列（複製）と「鍵 → 配列の位置」の索引を用意する
   const lists = {};
@@ -264,6 +269,14 @@ export function applyPull(state, records, lastSeq, cfg) {
       const i = indexes[sv.list].get(rec.treeId);
       const incoming = { ...rec.data, rev: rec.rev, sent: true, conflict: null };
       if (i === undefined) {
+        // 別の端末で追加して台帳の行に結び付けた木で、この端末ではその行が空の木のままなら、空の木と入れ替える（二重にしない）
+        const twin = incoming.uid && incoming.ledgerRow ? trees.findIndex((x) => isBlankLedgerTree(x) && sameLedgerRow(x, incoming)) : -1;
+        if (twin >= 0) {
+          trees[twin] = { ...incoming, id: `srv:${rec.treeId}`, order: trees[twin].order };
+          reindex(sv);
+          changedTrees.push(incoming.treeNo);
+          continue;
+        }
         // 端末にない記録（別の端末で追加した木など）は、種類ごとに決めた場所（簡易診断は同じまとまりの最後）に入れる
         const t = { ...incoming, id: `srv:${rec.treeId}` };
         const at = sv.place ? sv.place(trees, t, cfg) : trees.length;
@@ -308,6 +321,8 @@ export function applyPull(state, records, lastSeq, cfg) {
       confirms[key] = local?.dirty ? { ...local, rev: rec.rev } : { ...rec.data, rev: rec.rev, dirty: false };
     }
   }
+  // 追加した木は「どの木の次か」の位置に並べる（別の端末で追加した木・並びを変えた木も）
+  lists.trees = placeAdded(lists.trees, cfg);
   return {
     state: { ...state, ...lists, stickies, confirms, server: { ...state.server, lastSeq: Math.max(state.server.lastSeq || 0, lastSeq) } },
     changedTrees,

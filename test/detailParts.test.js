@@ -166,6 +166,43 @@ describe('確認用の数（文に出さない欄・周囲長）', () => {
     expect(checkNumbers({ circ: { a: '110', b: '210' }, rod: { a: '15', b: '45', c: '141' } }, [circ, rod])).toEqual(['110cm/210cm', '貫入部の周囲長141cm']);
     expect(checkNumbers({}, [circ, rod])).toEqual([]);
   });
+  it('【再現】2つの数の片方が空なら、空の側の単位を出さない（「2cm/cm」にしない）', async () => {
+    const { partText } = await import('../src/core/detailParts.js');
+    const rod = { name: 'rod', type: 'pair', unit: 'cm' };
+    expect(partText(rod, { a: '2', b: '' })).toBe('2cm/');
+    expect(partText(rod, { a: '', b: '50' })).toBe('/50cm');
+    expect(partText(rod, { a: '21', b: '70' })).toBe('21cm/70cm');
+  });
+  it('斜めの長さから水平距離（slant）。確認用に斜めの長さを出す', async () => {
+    const { horizontalOf, checkNumbers, partText, validatePartDefs } = await import('../src/core/detailParts.js');
+    expect(horizontalOf('30', 45)).toBe('21'); // 30×cos45° = 21.2
+    expect(horizontalOf('３０', 45, 1)).toBe('21.2');
+    expect(horizontalOf('', 45)).toBe('');
+    expect(horizontalOf('30', 90)).toBe('');
+    const rod = { name: 'rod', type: 'pair', unit: 'cm', slant: { label: '斜めの長さ', angle: 45 } };
+    expect(partText(rod, { a: '21', b: '70', s: '30' })).toBe('21cm/70cm'); // 文には水平距離だけ
+    expect(checkNumbers({ rod: { a: '21', b: '70', s: '30' } }, [rod])).toEqual(['斜めの長さ30cm']);
+    const errs = [];
+    const need = (ok, m) => (ok ? true : (errs.push(m), false));
+    validatePartDefs({ rod: { type: 'pair', label: 'x', slant: { label: 'y', angle: 120 } } }, 'p', need);
+    expect(errs.join()).toContain('slant');
+  });
+  it('文に出さない言葉の欄（text・noText）は、確認用に prefix を付けて出す', async () => {
+    const { checkNumbers, partText } = await import('../src/core/detailParts.js');
+    const note = { name: 'note', type: 'text', noText: true, prefix: '備考：' };
+    expect(partText(note, '北側に開口')).toBe('');
+    expect(checkNumbers({ note: '北側に開口' }, [note])).toEqual(['備考：北側に開口']);
+    expect(checkNumbers({ note: ' ' }, [note])).toEqual([]);
+  });
+  it('奥行を文に出さない大きさの欄に奥行があれば、確認用に「奥行」を出す', async () => {
+    const { checkNumbers, partText } = await import('../src/core/detailParts.js');
+    const size = { name: 'size', type: 'size', unitEach: true };
+    const v = [{ w: '30', h: '25', d: '10' }, { w: '5', h: '5' }];
+    expect(partText(size, v)).toBe('30cm×25cm、5cm×5cm'); // 文（ブック）には出さない
+    expect(checkNumbers({ size: v }, [size])).toEqual(['奥行10cm']);
+    expect(checkNumbers({ size: [{ w: '1', h: '2' }] }, [size])).toEqual([]);
+    expect(checkNumbers({ size: v }, [{ ...size, depth: true }])).toEqual([]); // 奥行を文に出す欄なら足さない
+  });
 });
 
 describe('数値の欄ができる前に書いた詳細の文', () => {

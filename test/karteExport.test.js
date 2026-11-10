@@ -8,6 +8,9 @@ import { validateConfig } from '../src/core/config.js';
 import { exportKarte, normalizeSheet, readKarteTemplate } from '../src/excel/karteExport.js';
 import { sheetFiles } from '../src/excel/xlsxFix.js';
 import { makeKarteTemplate } from './helpers/makeKarteTemplate.js';
+import { fitSize, heightNeeded, sheetGeometry } from '../src/excel/fitText.js';
+
+const firstSheetXml = async (buf) => (await JSZip.loadAsync(buf)).file('xl/worksheets/sheet1.xml').async('string');
 
 const cfg = structuredClone(cfgJson);
 const rec = (o) => ({ siteType: 'park', dupIndex: 1, parkCode: 'K01', done: true, source: 'app', ...o });
@@ -227,14 +230,23 @@ describe('長い文を枠に収める', () => {
     expect((await load(r2.buffer)).getCell('E7').alignment?.wrapText).toBeFalsy();
   });
 
-  it('7pt でも収まらない文は、どのシートのどの欄かを知らせる（ファイルは作る）', async () => {
+  it('7pt でも収まらない文は、その枠のいちばん下の行の高さを広げて収める（ほかの行の高さは様式のまま）', async () => {
     const huge = '長い文。'.repeat(80);
-    const r = await exportKarte(await makeKarteTemplate(), [{ ...AB001, b4Detail: huge }], structuredClone(cfgJson));
+    const tpl = await makeKarteTemplate();
+    const r = await exportKarte(tpl, [{ ...AB001, b4Detail: huge }], structuredClone(cfgJson));
     expect(r.errors).toEqual([]);
-    expect(r.stats.tooLong).toEqual([{ sheet: 'AB001', cell: 'E7' }]);
-    const e7 = (await load(r.buffer)).getCell('E7');
+    expect(r.stats.tooLong).toEqual([]);
+    expect(r.stats.grown).toEqual([{ sheet: 'AB001', cell: 'E7', row: 7 }]);
+    const ws = await load(r.buffer);
+    const e7 = ws.getCell('E7');
     expect(e7.value).toBe(huge); // 文は切らない
     expect(e7.font.size).toBe(7);
+    const t = await load(tpl);
+    // 広げた後の枠は、7pt で折り返した文が全部入る高さ
+    const box = sheetGeometry(await firstSheetXml(r.buffer))('E7');
+    expect(box.height).toBeGreaterThanOrEqual(heightNeeded(huge, 7, box.width) - 0.01);
+    expect(fitSize(huge, box, 11, 7).fits).toBe(true);
+    for (let i = 1; i <= 12; i++) if (i !== 7) expect(ws.getRow(i).height).toBe(t.getRow(i).height);
   });
 
   it('最小の大きさは設定で変えられる（5〜11）', () => {

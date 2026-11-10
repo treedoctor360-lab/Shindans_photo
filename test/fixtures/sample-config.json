@@ -351,6 +351,28 @@
       "message": "健全度{grade}ですが処置が空欄です。"
     },
     {
+      "id": "measureCheck",
+      "type": "measureNeedsCheck",
+      "level": "warn",
+      "items": [
+        {
+          "kinds": [
+            "decay"
+          ],
+          "field": "decay",
+          "label": "腐朽"
+        },
+        {
+          "kinds": [
+            "deadBranch"
+          ],
+          "field": "deadBranch",
+          "label": "枯れ枝"
+        }
+      ],
+      "message": "特記事項に寸法がありますが、{hits}が「無」です。確かめてください。"
+    },
+    {
       "id": "photoOver",
       "type": "photoOver",
       "level": "warn",
@@ -1050,7 +1072,8 @@
       "size": {
         "type": "size",
         "label": "大きさ（縦×横）",
-        "places": "箇所"
+        "places": "箇所",
+        "depthInput": true
       },
       "branchDia": {
         "type": "number",
@@ -1075,7 +1098,8 @@
       },
       "name": {
         "type": "text",
-        "label": "種名など"
+        "label": "種名など",
+        "standalone": true
       },
       "core": {
         "type": "flag",
@@ -1290,6 +1314,12 @@
         "type": "flag",
         "label": "最大のもの",
         "text": "（最大）"
+      },
+      "len": {
+        "type": "number",
+        "label": "長さ",
+        "prefix": "L",
+        "unit": "m"
       }
     },
     "kinds": [
@@ -1333,6 +1363,21 @@
           "branchLen",
           "max"
         ]
+      },
+      {
+        "key": "overhang",
+        "label": "はみ出し",
+        "places": [
+          "左",
+          "右"
+        ],
+        "line": "{kind}({place})：{text}",
+        "parts": [
+          "height",
+          "len"
+        ],
+        "photo": "はみ出し枝",
+        "db": "はみ出し({place}側)"
       }
     ]
   },

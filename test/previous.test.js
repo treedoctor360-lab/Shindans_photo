@@ -138,6 +138,16 @@ describe('まとめて、木と結び付ける', () => {
     expect(prevKey(' K01 ', 'ab001')).toBe('K01|AB001');
   });
 
+  it('【再現】場所のコードが合わなくても、場所の名前＋番号で1つに決まれば結び付ける（1つの公園にコードが2つある公園で、一覧にない木を追加したとき）', async () => {
+    const { index } = buildPrevious(await read(), 'now', order);
+    const placeName = index.trees['K01|AB001'][0].placeName;
+    expect(placeName).toBeTruthy();
+    // 追加した木に、同じ公園の別のコード（K02）が写った
+    expect(prevOf(park({ treeNo: 'AB001', parkCode: 'K02', parkName: placeName }), index, cfg).kartes[0].treeNo).toBe('AB001');
+    // 場所の名前が違えば結び付けない
+    expect(prevOf(park({ treeNo: 'AB001', parkCode: 'K02', parkName: '別の公園' }), index, cfg)).toBeNull();
+  });
+
   it('野帳に書く前回の印：印の設定がある種類のカルテだけ、年を付けて。樹種が違う木には付けない', async () => {
     const { index } = buildPrevious(await read([{ no: 'AB001' }, { no: 'AB001', kind: 'place' }]), 'now', order);
     const specs = cfg.previous.kartes;

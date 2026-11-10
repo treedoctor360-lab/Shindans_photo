@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import { makeLedger } from '../test/helpers/makeLedger.js';
 
-test('寸法を入れる：部位・種類を選んで数字を入れ、特記事項に1行ずつ足す（2か所目も）', async ({ page }) => {
+test('寸法を入れる：部位・種類を選んで数字を入れ、寸法の一覧に1行ずつ足す（2か所目も）。直す・消す', async ({ page }) => {
   fs.mkdirSync('test-results', { recursive: true });
   fs.writeFileSync('test-results/nm-ledger.xlsx', Buffer.from(await makeLedger()));
   await page.goto('./');
@@ -25,13 +25,16 @@ test('寸法を入れる：部位・種類を選んで数字を入れ、特記�
   await box.locator('[data-part="height.a"]').fill('２');
   await box.locator('[data-part="size.0.w"]').fill('20');
   await box.locator('[data-part="size.0.h"]').fill('50');
+  await expect(box.locator('[data-add-size]')).toHaveCount(0); // 大きさは1件に1つ（詳しい診断と同じ）
   await box.locator('[data-part="circ.a"]').fill('110');
   await box.locator('[data-part="circ.b"]').fill('150');
   await expect(box.locator('[data-auto=circ]')).toHaveText('計算では≧1/3'); // 周囲長比の目安
   await box.locator('[data-part=core]').click();
   await expect(box.locator('[data-testid=measure-preview]')).toHaveText('幹の腐朽：地上2m、20cm×50cm、110/150（芯達）');
   await box.locator('[data-testid=measure-add]').click();
-  await expect(page.locator('#f-notes')).toHaveValue('・枝の偏り\n・幹の腐朽：地上2m、20cm×50cm、110/150（芯達）');
+  // 特記事項の文字には入れず、寸法の一覧に並べる
+  await expect(page.locator('#f-notes')).toHaveValue('・枝の偏り');
+  await expect(page.locator('[data-testid=measure-line]')).toHaveText(['幹の腐朽：地上2m、20cm×50cm、110/150（芯達）']);
 
   // 続けて2つ目（数字は空に戻る。種類を変えると欄も変わる）
   await expect(box.locator('[data-part="height.a"]')).toHaveValue('');
@@ -44,7 +47,7 @@ test('寸法を入れる：部位・種類を選んで数字を入れ、特記�
   await expect(box.locator('[data-auto=core]')).toHaveText('計算では芯達');
   await expect(box.locator('[data-part=core]')).toHaveAttribute('aria-pressed', 'true');
   await box.locator('[data-testid=measure-add]').click();
-  await expect(page.locator('#f-notes')).toHaveValue('・枝の偏り\n・幹の腐朽：地上2m、20cm×50cm、110/150（芯達）\n・根株の鋼棒貫入：29cm/50cm（芯達）');
+  await expect(page.locator('[data-testid=measure-line]')).toHaveText(['幹の腐朽：地上2m、20cm×50cm、110/150（芯達）', '根株の鋼棒貫入：29cm/50cm（芯達）']);
   // 半径に届かなければ印は外れる。直径を手で入れても計算する
   await box.locator('[data-measure-kind=rod]').click();
   await box.locator('[data-part="rod.a"]').fill('10');
@@ -54,9 +57,23 @@ test('寸法を入れる：部位・種類を選んで数字を入れ、特記�
   // 一覧表用の特記には入らない（寸法は入れない決まり）
   await expect(page.locator('#f-dbnote')).not.toHaveValue(/腐朽|鋼棒/);
 
-  // 閉じて開き直しても、特記事項はそのまま
+  // 閉じても一覧はそのまま
   await page.click('[data-testid=measure-close]');
   await expect(box).toHaveCount(0);
+  await expect(page.locator('[data-testid=measure-line]')).toHaveCount(2);
+
+  // 直す：入れた数字のまま開く → 直すと一覧の1行が変わる（数字と文字が食い違わない）
+  await page.locator('[data-testid=measure-edit]').first().click();
+  await expect(box.locator('[data-part="height.a"]')).toHaveValue('２');
+  await box.locator('[data-part="height.a"]').fill('3');
+  await box.locator('[data-testid=measure-add]').click();
+  await expect(box).toHaveCount(0);
+  await expect(page.locator('[data-testid=measure-line]').first()).toHaveText('幹の腐朽：地上3m、20cm×50cm、110/150（芯達）');
+  // 消す（確かめてから）
+  await page.locator('[data-testid=measure-remove]').nth(1).click();
+  await page.click('[data-testid=measure-remove-ok]');
+  await expect(page.locator('[data-testid=measure-line]')).toHaveCount(1);
+  await expect(page.locator('#f-notes')).toHaveValue('・枝の偏り');
 });
 
 test('枯れ枝の本数の欄は、数字のキーボードを出す', async ({ page }) => {

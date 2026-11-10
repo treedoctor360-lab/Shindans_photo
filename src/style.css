@@ -209,6 +209,7 @@ html,body,#root{height:100%;margin:0}
 .sticky textarea,.sticky select{width:100%;box-sizing:border-box}
 .diff{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
 .diff th,.diff td{border:1px solid var(--line);padding:3px 5px;text-align:left;word-break:break-all;vertical-align:top}
+.diff th,.diff td{white-space:normal;overflow-wrap:anywhere}
 .notice{text-align:left;font:inherit;color:inherit;cursor:pointer}
 /* 前回の調査 */
 .prev summary{cursor:pointer;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
@@ -271,7 +272,7 @@ fieldset.form-body:disabled button:not(.seg-b):not(.chip){opacity:.3}
 .parts{display:flex;flex-wrap:wrap;gap:8px 12px;padding:8px;border:1px dashed var(--line);border-radius:8px}
 .parts .part{display:flex;flex-direction:column;gap:2px;min-width:0}
 .parts .pair{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
-.parts .pair input{width:4.5em;min-height:40px}
+.parts .pair input{width:3.8em;min-height:40px}
 .parts .sizes{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
 /* 周囲長から直径を計算する欄と、自動で決めた芯達の結果 */
 .parts .pair.circ{margin-top:4px}
@@ -291,7 +292,7 @@ fieldset.form-body:disabled button:not(.seg-b):not(.chip){opacity:.3}
 .initial-form .grid2>.row{min-width:0}
 /* 見出しを左、入力・ボタンを右の1行 */
 .initial-form .row.inline{display:grid;grid-template-columns:minmax(0,40%) minmax(0,1fr);align-items:center;gap:6px 10px}
-.initial-form .row.inline>input.detail,.initial-form .row.inline>.parts,.initial-form .row.inline>.hint{grid-column:1/-1}
+.initial-form .row.inline>input.detail,.initial-form .row.inline>.parts,.initial-form .row.inline>.entries,.initial-form .row.inline>.hint,.initial-form .row.inline>.alert{grid-column:1/-1}
 .initial-form .row.inline .seg.wrap{grid-auto-flow:column;grid-auto-columns:1fr;grid-template-columns:none;gap:5px}
 .initial-form .row.inline .seg-b{font-size:13px;padding:4px 1px;white-space:nowrap}
 /* 見出しの下にボタン（選択肢が多い・長い項目） */
@@ -313,23 +314,117 @@ fieldset.form-body:disabled button:not(.seg-b):not(.chip){opacity:.3}
 /* 入力画面の「前の木」「次の木」：ボタンの中に前後の樹木番号を小さく出す */
 .btn.nav-tree{display:inline-flex;flex-direction:column;align-items:center;line-height:1.2}
 .btn.nav-tree .nav-no{font-size:12px;color:var(--muted);font-weight:400;margin-top:2px}
+/* 特記事項の寸法の一覧（1件ずつ「直す」「消す」） */
+.measures{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.measure-row{display:flex;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.measure-row .measure-line{flex:1;min-width:0;overflow-wrap:anywhere;font-size:14px;line-height:1.45}
+.measure-row .acts{display:flex;gap:6px;flex-shrink:0}
+/* 弱点の詳細の箇所（①②…） */
+.entries{display:flex;flex-direction:column;gap:8px}
+.entry + .entry{border-top:1px dashed var(--line);padding-top:8px}
+.entries .parts{border:0;padding:4px 0}
+/* 1つの欄を1行に（左に短い名前、右に入力） */
+.parts.rows{flex-direction:column;flex-wrap:nowrap;gap:6px}
+.parts.rows .part{flex-direction:row;align-items:center;gap:8px}
+.parts.rows .part>small{flex:none;width:4.8em;font-size:13px;color:var(--muted)}
+.parts.rows .part>input[type=text]{flex:1;min-width:0}
+.entry-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+/* 詳しい診断：簡易の特記事項の一覧（反映されていない行を黄、反映済みを緑、手で書いた行を灰の線で示す） */
+.simple-notes .sn-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.simple-notes .sn{display:flex;flex-direction:column;gap:2px;padding:6px 10px;border-left:4px solid var(--line);border-bottom:1px solid var(--line)}
+.simple-notes .sn small{font-size:12px;color:var(--muted)}
+.simple-notes .sn.missing,.simple-notes .sn.none{border-left-color:var(--warn);background:var(--warn-soft)}
+.simple-notes .sn.missing small,.simple-notes .sn.none small{color:var(--warn)}
+.simple-notes .sn.ok{border-left-color:var(--accent)}
+.simple-notes h2 .tag{margin-left:6px}
 
-/* 写真（撮る写真の枠ごと） */
-.shots{display:flex;flex-direction:column;gap:8px}
-.shot{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--sunk)}
-.shot-free{border:1px dashed var(--line);border-radius:8px;padding:8px 10px;background:var(--sunk)}
-.shot.done{background:var(--surface)}
-.shot-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.shot-name{font-family:var(--num);font-size:12px;color:var(--muted);word-break:break-all}
-.shot-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
-.shot-row label.btn{display:inline-flex;align-items:center;min-height:44px}
-.shot-thumb{padding:0;border:1px solid var(--line);border-radius:4px;background:none;line-height:0}
-.shot-thumb img{max-width:120px;max-height:120px;border-radius:4px}
-.shot-free-item{border-top:1px solid var(--line);padding-top:6px;margin-top:6px}
-.shot-free input[type=text]{width:100%;margin-top:8px}
-.tag.ok{color:var(--gA);border-color:var(--gA)}
-.tag.warn{color:var(--warn);border-color:var(--warn)}
-.warn-text{color:var(--warn)}
-.shot-view{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;padding:16px}
-.shot-view img{max-width:100%;max-height:80vh}
-.shot-view-cap{color:#fff;font-size:13px;margin-top:8px;text-align:center}
+/* デスクトップ表示（上の帯のボタンで切り替え。広い画面だけ）：一覧・簡易診断・詳しい診断を横に並べる
+   ・並べた列の中は、スマホと同じ1列の並びにする（広い画面用の2列・3列にしない） */
+.desk-btn{margin-left:auto;font-size:12px;padding:2px 10px;border:1px solid currentColor;border-radius:6px;background:transparent;color:inherit;cursor:pointer;white-space:nowrap}
+.desk-btn.on{background:var(--bg);color:var(--ink)}
+/*  ・どの規則も、デスクトップ表示にしたときだけある部分（.app.desk・main.split・.pane-*）に当たる。
+      広い画面（1100px 以上）でも、横にしたスマホ（.compact）でも使う */
+@media all{
+  .app.desk{max-width:none}
+  .app.desk .tabs-in{max-width:none}
+  main.split{display:grid;grid-template-columns:minmax(520px,40%) minmax(0,1fr);gap:12px;padding:0 12px}
+  .pane-l{position:sticky;top:var(--top-h,64px);align-self:start;max-height:calc(100vh - var(--top-h,64px) - 76px);overflow:auto;border-right:1px solid var(--line)}
+  /* 簡易診断・詳しい診断は、それぞれの列の中でスクロールする（片方を見たまま、もう片方を動かせる）
+     ・列の中では上の帯の高さを 0 とみなし、樹木番号の帯・区切りの見出しを列の上端に止める */
+  .pane-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px;height:calc(100vh - var(--top-h,64px) - 76px)}
+  .pane-col{min-width:0;min-height:0;overflow:auto;border:1px solid var(--line);border-radius:10px;--top-h:0px}
+  .pane-col:empty{display:none}
+  .pane-empty{padding:40px 16px;color:var(--muted)}
+  main.split .cards{grid-template-columns:minmax(0,1fr)}
+  main.split fieldset.form-body{grid-template-columns:minmax(0,1fr)}
+  main.split .view{padding:12px 14px 20px}
+  main.split .card.sel{outline:2px solid var(--accent)}
+}
+
+/* デスクトップ表示の左の一覧表（OverviewTable.jsx。デスクトップ表示のときだけ出る） */
+@media all{
+  .ov{padding:8px 4px 8px 0}
+  .ov-bar{display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap}
+  .ov-only{font-size:13px;display:flex;align-items:center;gap:4px}
+  .ov-group{width:100%;margin-bottom:8px}
+  .ov-t{border-collapse:collapse;font-size:12px;width:100%;table-layout:fixed}
+  .ov-t th{position:sticky;top:0;background:var(--accent);color:#fff;font-weight:500;padding:4px 5px;white-space:nowrap;overflow:hidden;text-align:left;z-index:1}
+  .ov-t td{border-bottom:1px solid var(--line);padding:4px 5px;vertical-align:top;cursor:pointer;white-space:normal;overflow:hidden;overflow-wrap:anywhere}
+  .ov-t td.no{font-family:monospace;white-space:nowrap}
+  .ov-t td.yes-list{color:var(--warn)}
+  .ov-t td.yes-list .blank{color:#b42318;font-weight:600}
+  .ov-t td.note .clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .ov-t td.s-todo{color:var(--muted)}
+  .ov-t .flag{display:inline-block;margin:0 3px 3px 0;padding:0 6px;border-radius:9px;background:#fdecc8;color:#7a4b00;font-size:11px;white-space:nowrap}
+  .ov-t tr.sel td{background:#e6f2ec}
+  .ov-t tr:hover td{background:#f3f7f5}
+}
+
+/* カルテで見る（確認用カルテを画面に出す。見るだけ） */
+.kv{position:fixed;inset:0;z-index:40;background:var(--bg);display:flex;flex-direction:column}
+.kv-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;padding-top:calc(8px + env(safe-area-inset-top,0px));background:var(--surface);border-bottom:1px solid var(--line)}
+.kv-bar>b{margin-right:auto}
+.kv-tabs,.kv-zoom{display:flex;gap:4px}
+.kv-bar .btn{min-height:36px;padding:4px 10px}
+.kv-body{flex:1;overflow:auto;padding:8px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));-webkit-overflow-scrolling:touch}
+.kv-page{display:inline-block;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+.kv-t{border-collapse:collapse;table-layout:fixed;background:#fff;color:#000;font-family:"游ゴシック","Yu Gothic","Hiragino Sans","Meiryo",sans-serif;font-size:11pt;white-space:normal}
+.kv-t td{padding:0 2px;overflow:hidden;line-height:1.15;border:0}
+.kv .hint{margin-top:8px}
+.kv-spill{overflow:hidden;white-space:pre;position:relative}
+
+/* 横にしたスマホのデスクトップ表示（2列：一覧と、簡易診断／詳しい診断の切り替え）
+   ・画面全体は動かさず（高さを画面に合わせる）、左の一覧と右の列がそれぞれの中でスクロールする
+   ・高さが少ないので上下の帯・お知らせ・余白を細くし、下の著作権の行は出さない
+   ・「一覧を隠す」で右の列を画面いっぱいにする */
+.app.desk.compact{height:100vh;height:100dvh;display:flex;flex-direction:column;padding-bottom:0;overflow:hidden}
+.app.desk.compact .top{position:static;flex:none;padding:4px 12px 5px;padding-left:calc(12px + env(safe-area-inset-left,0px));padding-right:calc(12px + env(safe-area-inset-right,0px))}
+.app.desk.compact .top-row{align-items:center}
+.app.desk.compact .top h1{font-size:15px}
+.app.desk.compact .top .meta{display:none}
+.app.desk.compact>.alert{flex:none;margin:4px 8px 0 calc(8px + env(safe-area-inset-left,0px)) !important;padding:3px 10px;font-size:12.5px;min-height:0}
+.app.desk.compact footer{display:none}
+.app.desk.compact .tabs{position:static;flex:none}
+.app.desk.compact .tab{padding:3px 4px 4px;flex-direction:row;justify-content:center;gap:6px}
+.app.desk.compact .tab b{font-size:13px}
+.app.desk.compact main.split{flex:1;min-height:0;grid-template-columns:minmax(280px,40%) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:6px;padding:4px calc(4px + env(safe-area-inset-right,0px)) 2px calc(4px + env(safe-area-inset-left,0px))}
+.app.desk.compact main.split.list-hidden{grid-template-columns:minmax(0,1fr)}
+.app.desk.compact main.split.list-hidden .pane-l{display:none}
+.app.desk.compact .pane-l{position:static;max-height:none;height:100%;min-height:0}
+.app.desk.compact .pane-r{height:100%;min-height:0}
+.app.desk.compact .pane-cols.one{display:flex;flex-direction:column;gap:4px;height:100%}
+.app.desk.compact .pane-cols.one .pane-col{flex:1;min-height:0}
+.app.desk.compact .pane-head{display:flex;gap:6px;align-items:stretch;flex:none}
+.app.desk.compact .pane-list-btn{min-height:32px;padding:2px 10px;font-size:13px;white-space:nowrap}
+.app.desk.compact .pane-tabs{flex:1}
+.app.desk.compact .pane-tabs .seg-b{min-height:32px;padding:2px 4px}
+.app.desk.compact main.split .view{padding:6px 8px 12px;gap:8px}
+.app.desk.compact main.split .sec{padding:10px;gap:8px}
+.app.desk.compact .ov{padding:2px 2px 6px 0}
+.app.desk.compact .ov-t{font-size:11.5px}
+.app.desk.compact .ov-bar{gap:6px;margin-bottom:4px}
+.app.desk.compact .ov-group{margin-bottom:4px}
+.app.desk.compact .tree-bar{padding-top:4px;padding-bottom:4px}
+.app.desk.compact .tree-bar .btn{min-height:34px;padding:2px 8px}
+/* 出力：内勤さんに渡す Excel の公園・路線の選択 */
+.handoff-groups{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px}

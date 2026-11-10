@@ -20,7 +20,7 @@ export const simpleKey = (t, cfg) =>
   [cfg.job.year, t.siteType || '', t.uid ? `+${t.uid}` : toHalf(t.treeNo).trim(), t.dupIndex || 1].join('|');
 
 // 同じまとまり（公園・路線）の最後の後ろ。まとまりがなければ配列の最後
-function afterSameGroup(list, rec, cfg) {
+export function afterSameGroup(list, rec, cfg) {
   const g = groupKey(rec, cfg);
   for (let j = list.length - 1; j >= 0; j--) if (groupKey(list[j], cfg) === g) return j + 1;
   return list.length;

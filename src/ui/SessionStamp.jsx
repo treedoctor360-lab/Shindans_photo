@@ -5,7 +5,17 @@ import { todayYmd } from './SettingsView.jsx';
 
 const slash = (d) => String(d || '').replace(/-/g, '/');
 
-export default function SessionStamp({ state, update }) {
+// kept：入力済みの記録の調査日・調査者（{ date: 'YYYY-MM-DD', inspector }）。あれば、保存してもそのままと知らせる
+export default function SessionStamp({ state, update, kept = null }) {
+  if (kept && (kept.date || kept.inspector)) {
+    return (
+      <div className="stamp" data-testid="session-stamp">
+        <span>
+          入力済みなので、保存しても調査日 {slash(kept.date) || '（なし）'}・調査者 {kept.inspector || '（なし）'} のままです（直すときは一覧の「調査日・調査者をまとめて直す」）
+        </span>
+      </div>
+    );
+  }
   const s = state.session || {};
   const today = todayYmd();
   const notToday = !!s.date && s.date !== today;

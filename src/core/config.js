@@ -25,6 +25,7 @@ const RULE_FIELDS = {
   treatForbidden: ['pattern'],
   treatRequires: ['pattern', 'field', 'label'],
   gradeNeedsTreat: ['grades'],
+  measureNeedsCheck: ['items'],
   photoOver: [],
 };
 // 正規表現として読む項目
@@ -93,14 +94,6 @@ export function validateConfig(cfg) {
     need(isArr(p.weak) && p.weak.every((x) => isCond(x) && isStr(x.name)), 'photo.weak の形が違います');
     need(isArr(p.shared) && p.shared.every((x) => isCond(x) && isStr(x.name)), 'photo.shared の形が違います');
     need(isArr(p.fullOnly) && p.fullOnly.every(isCond), 'photo.fullOnly の形が違います');
-    // camera（省略可）：撮った写真の大きさ・ファイル名・端末に残す量
-    if (p.camera !== undefined) {
-      const c = p.camera;
-      need(
-        isObj(c) && ['long', 'short', 'maxKB', 'localMB'].every((k) => c[k] === undefined || (isNum(c[k]) && c[k] > 0)) && (c.fileName === undefined || isStr(c.fileName)),
-        'photo.camera の long・short・maxKB・localMB は正の数、fileName は文字にしてください',
-      );
-    }
   }
 
   if (need(isArr(cfg.rules), 'rules（判定支援の規則）がありません')) {
@@ -126,6 +119,11 @@ export function validateConfig(cfg) {
         need(
           isArr(r.items) && r.items.every((it) => ['height', 'branch'].includes(it.ratio) && isNum(it.threshold) && isStr(it.label)),
           `${at} の items の形が違います`,
+        );
+      if (r.type === 'measureNeedsCheck')
+        need(
+          isArr(r.items) && r.items.every((it) => isArr(it?.kinds) && it.kinds.every(isStr) && isStr(it.field) && isStr(it.label)) && (r.none == null || (isArr(r.none) && r.none.every(isStr))),
+          `${at} の items（[{ kinds: [寸法の種類], field, label }]）・none の形が違います`,
         );
       if (r.type === 'conflict') need(isCond(r.when) && isArr(r.hits) && r.hits.every((h) => isCond(h) && isStr(h.label)), `${at} の when・hits の形が違います`);
       if (r.actions != null)
@@ -228,6 +226,42 @@ function validateInitialSurvey(s, cfg, need) {
   if (s.forms != null) validateInitialForms(s.forms, need);
   validateDetailParts(s, need); // 弱点の詳細を組み立てる部品（省略可）
   if (s.fromMeasures != null) validateFromMeasures(s.fromMeasures, cfg, need); // 特記事項の寸法から弱点の詳細へ写す（省略可）
+  if (s.crossCheck != null) {
+    // 簡易診断で「有」なのに詳しい診断で「有」がない、の注意（省略可）
+    const weakKeys = new Set(Object.values(s.forms || {}).flatMap((f) => (f?.sections || []).flatMap((sec) => (sec?.items || []).filter((it) => it?.type === 'weak').map((it) => it.key))));
+    if (need(Array.isArray(s.crossCheck), 'initialSurvey.crossCheck は並び（[…]）にしてください'))
+      s.crossCheck.forEach((r, i) => {
+        const at = `initialSurvey.crossCheck[${i}]`;
+        const eqOk = typeof r?.eq === 'string' || (Array.isArray(r?.eq) && r.eq.length > 0 && r.eq.every((x) => typeof x === 'string'));
+        if (!need(r && typeof r.field === 'string' && eqOk && Array.isArray(r.items) && r.items.length > 0 && (r.label == null || typeof r.label === 'string'), `${at} は { field, eq: 値 か [値…], items: [弱点の項目…], label? } の形にしてください`)) return;
+        need(r.items.every((k) => weakKeys.has(k)), `${at}.items に、弱点（weak）の項目にないものがあります`);
+      });
+  }
+  if (s.linked != null) {
+    // 組になる選択肢の項目（省略可）：[{ items: [項目…], value: "支柱なし" }] どれかが value なのに、ほかが別の値なら注意する
+    const keys = new Set(Object.values(s.forms || {}).flatMap((f) => (f?.sections || []).flatMap((sec) => (sec?.items || []).map((it) => it?.key))));
+    if (need(Array.isArray(s.linked), 'initialSurvey.linked は並び（[…]）にしてください'))
+      s.linked.forEach((r, i) => {
+        const at = `initialSurvey.linked[${i}]`;
+        if (!need(r && Array.isArray(r.items) && r.items.length >= 2 && r.items.every(isStr) && isStr(r.value), `${at} は { items: [項目, 項目…], value: "値" } の形にしてください`)) return;
+        need(r.items.every((k) => keys.has(k)), `${at}.items に、入力画面にない項目があります`);
+      });
+  }
+  if (s.noteCheck != null) {
+    // 簡易診断の特記事項（定型文）・項目が詳しい診断に反映されているか（省略可。src/store/initial.js の simpleNotesStatus）
+    const keys = new Set(Object.values(s.forms || {}).flatMap((f) => (f?.sections || []).flatMap((sec) => (sec?.items || []).map((it) => it?.key))));
+    const chips = new Set((cfg.noteChips || []).flatMap((c) => [c?.t, ...(c?.was || [])]));
+    if (need(Array.isArray(s.noteCheck), 'initialSurvey.noteCheck は並び（[…]）にしてください'))
+      s.noteCheck.forEach((r, i) => {
+        const at = `initialSurvey.noteCheck[${i}]`;
+        const byNotes = r && Array.isArray(r.notes) && r.notes.length > 0 && r.notes.every(isStr);
+        const byField = r && isStr(r.field);
+        if (!need(r && (byNotes !== byField) && Array.isArray(r.items) && r.items.length > 0 && r.items.every(isStr) && (r.label == null || isStr(r.label)), `${at} は { notes: [定型文…], items: [項目…] } か { field: 簡易診断の項目, items: [項目…] } の形にしてください`)) return;
+        need(r.items.every((k) => keys.has(k)), `${at}.items に、入力画面にない項目があります`);
+        if (byNotes) need(r.notes.every((t) => chips.has(t)), `${at}.notes に、定型文（noteChips）にない文があります`);
+        if (r.alias != null) need(byField && isObj(r.alias) && Object.values(r.alias).every((v) => Array.isArray(v) && v.every(isStr)), `${at}.alias は field の規則に付け、{ 名前: [同じとみなす名前…] } の形にしてください`);
+      });
+  }
   // 一覧表の健全度への書き戻し（省略可）：{ from: "詳しい診断の項目", values: [書く値…], treatFrom?: "処置の項目" }
   if (s.gradeWriteBack != null)
     need(
@@ -352,6 +386,15 @@ function validateFieldSheet(fs, need) {
   need(ints.every((k) => Number.isInteger(fs[k]) && fs[k] > 0), `fieldSheet の ${ints.join('・')} は正の整数にしてください`);
   need(isNum(fs.charPx) && isNum(fs.defaultColWidth) && isNum(fs.optionFontPt) && isNum(fs.optionLinePt), 'fieldSheet の charPx・defaultColWidth・optionFontPt・optionLinePt は数にしてください');
   need(isStr(fs.font) && /^[0-9A-F]{8}$/i.test(fs.penColor || ''), 'fieldSheet の font・penColor（例 FF1F3D99）が必要です');
+  need(fs.minFontSize == null || (isNum(fs.minFontSize) && fs.minFontSize >= 5 && fs.minFontSize <= 9), 'fieldSheet.minFontSize（長い文を小さくするときの最小の文字の大きさ）は 5〜9 の数にしてください');
+  need(fs.optionStyle == null || ['circle', 'selected'].includes(fs.optionStyle), 'fieldSheet.optionStyle は circle（○で囲む）か selected（選んだものだけ）にしてください');
+  need(fs.optionWidth == null || (isNum(fs.optionWidth) && fs.optionWidth > 0 && fs.optionWidth <= 1), 'fieldSheet.optionWidth（選択肢の列の幅の割合）は 0 より大きく 1 以下の数にしてください');
+  need(fs.widenCol == null || isCol(fs.widenCol), 'fieldSheet.widenCol（細くした分を足す列）は列の文字（例 M）にしてください');
+  need(fs.colWidths == null || (isObj(fs.colWidths) && Object.entries(fs.colWidths).every(([k, v]) => isCol(k) && isNum(v) && v > 0)), 'fieldSheet.colWidths（列の幅）は { "D": 8 } の形にしてください');
+  need(fs.sideMarginMm == null || (isNum(fs.sideMarginMm) && fs.sideMarginMm >= 0 && fs.sideMarginMm <= 30), 'fieldSheet.sideMarginMm（印刷の左右の余白）は 0〜30 の数（mm）にしてください');
+  need(fs.branchFontPt == null || (isNum(fs.branchFontPt) && fs.branchFontPt >= 6 && fs.branchFontPt <= 14), 'fieldSheet.branchFontPt（枝長/枝径の字の大きさ）は 6〜14 の数にしてください');
+  need(fs.branchRatioLine == null || typeof fs.branchRatioLine === 'boolean', 'fieldSheet.branchRatioLine は true か false にしてください');
+  need(fs.selectedFontPt == null || (isNum(fs.selectedFontPt) && fs.selectedFontPt >= 6 && fs.selectedFontPt <= 20), 'fieldSheet.selectedFontPt は 6〜20 の数にしてください');
   const h = fs.header;
   need(isObj(h) && isAddr(h.title) && isAddr(h.inspector) && isAddr(h.date) && isStr(h.dateTemplate) && isNum(h.eraOffset) && isStr(h.multiLabel), 'fieldSheet.header の形が違います');
   const keys = ['treeNo', 'species', 'height', 'girth', 'branch', 'note', 'initial', 'treat', 'reason'];

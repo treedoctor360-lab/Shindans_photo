@@ -1,10 +1,12 @@
-// 特記事項に寸法（腐朽・空洞・鋼棒貫入など）の1行を足す欄
-//  種類と部位を選び、数字の欄に入れる → 「特記事項に追加」で1行足す（記号・単位はアプリが付ける）。
-//  何か所でも続けて足せる（足すたびに数字の欄は空に戻る）。書き方は設定 noteMeasures（noteMeasures.js）
+// 特記事項の寸法（腐朽・空洞・鋼棒貫入など）の一覧と、入れる・直す画面
+//  寸法は特記事項の文字の欄には入れず、この一覧に1件ずつ置く（数字と文字が食い違わないように）。
+//  野帳の特記事項には、文字の欄の文の後に寸法の1行を並べる（noteMeasures.js の fullNotesOf）。
+//  「直す」で入れたときと同じ画面が、入れた数字のまま開く。言葉を足すときは備考（memo）の欄に書く。
+//  書き方は設定 noteMeasures（noteMeasures.js）
 import { useState } from 'react';
-import { measureKinds, measureLine, measureParts, measurePlaces, measurePrefill, measureRecord } from '../core/noteMeasures.js';
+import { measureKinds, measureLine, measureParts, measurePlaces, measurePrefill, putMeasure, removeMeasure, toMeasuresV2 } from '../core/noteMeasures.js';
 import PartsInputs from './PartsInputs.jsx';
-import { withAuto } from '../core/detailParts.js';
+import { requiredFlags, unchosenFlags, withAuto } from '../core/detailParts.js';
 
 // 選択肢のボタン（数字の欄の中の選択肢用）
 function Choice({ k, opts, value, onPress }) {
@@ -19,77 +21,135 @@ function Choice({ k, opts, value, onPress }) {
   );
 }
 
-export default function NoteMeasures({ cfg, tree, onAdd }) {
-  const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState('');
-  const [place, setPlace] = useState('');
-  const [values, setValues] = useState({});
+// tree：今の木。onChange(fn)：木を変える（fn は木 → 新しい木）。readOnly：見るだけ
+export default function NoteMeasures({ cfg, tree, onChange, readOnly = false }) {
+  const [edit, setEdit] = useState(null); // 入れている・直している寸法 { i（直す記録の番号。新しく入れるときは -1）, kind, place, values }
+  const [askRemove, setAskRemove] = useState(-1); // 消すのを確かめている記録の番号
   if (!cfg.noteMeasures) return null;
-  if (!open)
-    return (
-      <button type="button" className="more" onClick={() => setOpen(true)} data-testid="measure-open">
-        ＋ 寸法を入れる（{measureKinds(cfg)
-          .map((k) => k.label)
-          .join('・')}）
-      </button>
-    );
-  const line = measureLine(cfg, kind, place, values);
+  const list = toMeasuresV2(tree, cfg).measures; // 前の形の木も、新しい形で見せる（直したときに新しい形に移す）
+  const kindLabel = (k) => measureKinds(cfg).find((x) => x.key === k)?.label || k;
+
+  const open = (i) => {
+    const m = list[i];
+    setEdit(m ? { i, kind: m.kind, place: m.place || '', values: structuredClone(m.values || {}) } : { i: -1, kind: '', place: '', values: {} });
+    setAskRemove(-1);
+  };
+  const line = edit ? measureLine(cfg, edit.kind, edit.place, edit.values) : '';
+  const needPlace = edit?.kind ? measurePlaces(edit.kind, cfg).length > 0 : false;
+  // 必ず選ぶ印（例 芯達か芯未達か）。まだ選んでいなければ追加・直すを押せない
+  const partsNow = edit?.kind ? measureParts(edit.kind, cfg) : [];
+  const unchosen = edit?.kind ? unchosenFlags(edit.values, partsNow, needPlace ? edit.place : '') : [];
+  const done = () => {
+    onChange((t) => putMeasure(t, cfg, { kind: edit.kind, place: needPlace ? edit.place : '', values: edit.values }, edit.i));
+    // 直したら閉じる。新しく入れたときは、続けて別の所を入れられるように開いたまま数字だけ空に戻す
+    if (edit.i >= 0) setEdit(null);
+    else setEdit((e) => ({ ...e, values: measurePrefill(e.kind, tree, cfg) }));
+  };
+
   return (
-    <div className="measure" data-testid="measure">
-      <div className="chips" role="group" aria-label="種類">
-        {measureKinds(cfg).map((k) => (
-          <button
-            key={k.key}
-            type="button"
-            className={`chip${kind === k.key ? ' on' : ''}`}
-            onClick={() => {
-              setKind(k.key);
-              setValues(measurePrefill(k.key, tree, cfg)); // 種類が変わると欄も変わるので、数字は空に戻す（木の入力から入れられる値は入れる）
-            }}
-            data-measure-kind={k.key}
-          >
-            {k.label}
-          </button>
-        ))}
+    <div className="measures" data-testid="measures">
+      <div className="lbl">
+        寸法 <small>数値で入れたもの。野帳の特記事項の最後に並びます{cfg.noteMeasures.merge ? '（同じ部位・種類は①②で1行に）' : ''}</small>
       </div>
-      <div className="chips" role="group" aria-label="部位">
-        {(kind ? measurePlaces(kind, cfg) : cfg.noteMeasures.places).map((p) => (
-          <button key={p} type="button" className={`chip${place === p ? ' on' : ''}`} onClick={() => setPlace(p)} data-measure-place={p}>
-            {p}
-          </button>
-        ))}
-      </div>
-      {kind && (
-        <PartsInputs
-          parts={measureParts(kind, cfg)}
-          values={values}
-          onPut={(name, v) => setValues((cur) => withAuto({ ...cur, [name]: v }, measureParts(kind, cfg), name))} // 芯達などの自動の印を決め直す
-          testId="measure"
-          Choice={Choice}
-          pi={cfg.calc?.pi}
-        />
+      {list.map((m, i) => (
+        <div className="measure-row" key={i} data-testid="measure-row">
+          <span className="measure-line" data-testid="measure-line">
+            {measureLine(cfg, m.kind, m.place, m.values) || `${kindLabel(m.kind)}（数値なし）`}
+          </span>
+          {!readOnly &&
+            (askRemove === i ? (
+              <span className="acts">
+                <button
+                  type="button"
+                  className="btn fill"
+                  onClick={() => {
+                    onChange((t) => removeMeasure(t, cfg, i));
+                    setAskRemove(-1);
+                  }}
+                  data-testid="measure-remove-ok"
+                >
+                  消す
+                </button>
+                <button type="button" className="btn" onClick={() => setAskRemove(-1)}>
+                  やめる
+                </button>
+              </span>
+            ) : (
+              <span className="acts">
+                <button type="button" className="btn" onClick={() => open(i)} data-testid="measure-edit">
+                  直す
+                </button>
+                <button type="button" className="btn" onClick={() => setAskRemove(i)} data-testid="measure-remove">
+                  消す
+                </button>
+              </span>
+            ))}
+        </div>
+      ))}
+
+      {!readOnly && !edit && (
+        <button type="button" className="more" onClick={() => open(-1)} data-testid="measure-open">
+          ＋ 寸法を入れる（{measureKinds(cfg)
+            .map((k) => k.label)
+            .join('・')}）
+        </button>
       )}
-      <div className="hint" data-testid="measure-preview">
-        {line || (!kind ? '種類を選んでください' : place || !measurePlaces(kind, cfg).length ? '数字を入れると、ここに足す1行が出ます' : '部位を選んでください')}
-      </div>
-      <div className="sub">
-        <button
-          type="button"
-          className="btn fill"
-          disabled={!line}
-          onClick={() => {
-            // 1行と一緒に元の数字も渡す（詳しい診断の記録を作るときに、弱点の詳細へ写すため）
-            onAdd(line, measureRecord(kind, measurePlaces(kind, cfg).length ? place : '', values, line));
-            setValues(measurePrefill(kind, tree, cfg)); // 続けて別の所を入れられるように
-          }}
-          data-testid="measure-add"
-        >
-          特記事項に追加
-        </button>
-        <button type="button" className="btn" onClick={() => setOpen(false)} data-testid="measure-close">
-          閉じる
-        </button>
-      </div>
+
+      {!readOnly && edit && (
+        <div className="measure" data-testid="measure">
+          <div className="lbl">{edit.i >= 0 ? `寸法を直す：${kindLabel(edit.kind)}` : '寸法を入れる'}</div>
+          {edit.i < 0 && (
+            <div className="chips" role="group" aria-label="種類">
+              {measureKinds(cfg).map((k) => (
+                <button
+                  key={k.key}
+                  type="button"
+                  className={`chip${edit.kind === k.key ? ' on' : ''}`}
+                  // 種類が変わると欄も変わるので、数字は空に戻す（木の入力から入れられる値は入れる）
+                  onClick={() => setEdit((e) => ({ ...e, kind: k.key, values: measurePrefill(k.key, tree, cfg) }))}
+                  data-measure-kind={k.key}
+                >
+                  {k.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {(edit.kind ? needPlace : true) && (
+            <div className="chips" role="group" aria-label="部位">
+              {(edit.kind ? measurePlaces(edit.kind, cfg) : cfg.noteMeasures.places).map((p) => (
+                <button key={p} type="button" className={`chip${edit.place === p ? ' on' : ''}`} onClick={() => setEdit((e) => ({ ...e, place: p }))} data-measure-place={p}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+          {edit.kind && (
+            <PartsInputs
+              parts={measureParts(edit.kind, cfg)}
+              values={edit.values}
+              // 芯達などの自動の印を決め直す
+              onPut={(name, v) => setEdit((e) => ({ ...e, values: withAuto({ ...e.values, [name]: v }, measureParts(e.kind, cfg), name) }))}
+              testId="measure"
+              Choice={Choice}
+              pi={cfg.calc?.pi}
+              required={requiredFlags(partsNow, needPlace ? edit.place : '')}
+              noAddSize // 詳しい診断と同じく、大きさは1件に1つ（別の箇所は寸法を足して入れる）
+            />
+          )}
+          <div className="hint" data-testid="measure-preview">
+            {line || (!edit.kind ? '種類を選んでください' : edit.place || !needPlace ? '数字を入れると、ここに1行が出ます' : '部位を選んでください')}
+            {line && unchosen.length > 0 && <b style={{ color: "var(--warn)" }} data-testid="measure-unchosen">{`　${unchosen.join('・')}かどうかを選んでください`}</b>}
+          </div>
+          <div className="sub">
+            <button type="button" className="btn fill" disabled={!line || unchosen.length > 0} onClick={done} data-testid="measure-add">
+              {edit.i >= 0 ? '直す' : '追加'}
+            </button>
+            <button type="button" className="btn" onClick={() => setEdit(null)} data-testid="measure-close">
+              やめる
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

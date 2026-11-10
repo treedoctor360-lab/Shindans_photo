@@ -9,7 +9,8 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # ubuntu-latest は Ubuntu 26 へ切り替わり中で、画面テスト用のブラウザの準備（--with-deps）が失敗するため、版を決めておく
+    runs-on: ubuntu-24.04
     steps:
       - name: リポジトリの取得
         uses: actions/checkout@v4

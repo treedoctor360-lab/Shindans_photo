@@ -6,7 +6,9 @@ import cfgJson from './fixtures/sample-config.json';
 import { validateConfig } from '../src/core/config.js';
 import { blankTree } from '../src/core/tree.js';
 import { importInitialBook, initialState, migrate } from '../src/store/state.js';
-import { bookEntry, bookValues, discardInitial, karteExtras, karteRecords, fillNone, gradeWriteBack, initialOf, initialsForBook, withdrawInitial, initialStatus, initialTargets, inheritFrom, missingInitial, optionsOf, saveInitial, startInitial, updateInitial } from '../src/store/initial.js';
+import { measureLine, measureRecord, toMeasuresV2 } from '../src/core/noteMeasures.js';
+import { initialWarnings, simpleNotesStatus } from '../src/store/initial.js';
+import { bookEntry, bookValues, discardInitial, karteExtras, karteRecords, fillNone, gradeWriteBack, initialOf, initialsForBook, withdrawInitial, initialStatus, initialTargets, inheritFrom, missingInitial, optionsOf, saveInitial, startInitial, updateInitial, measureStatus, syncMeasures, applyMeasures } from '../src/store/initial.js';
 import { addSticky, answerSticky, closeSticky, fieldLabel, reviewFields, reviewState, reviewStatesOf, setConfirm, treeKey } from '../src/store/review.js';
 import { applyPull, applyPush, outbox, pull, push } from '../src/store/sync.js';
 import { INITIAL, initialKey } from '../src/store/surveys.js';
@@ -135,6 +137,23 @@ describe('確認用カルテに出す値（株立の幹周・樹高/幹径・枝
     // 入力の数がなければ足さない
     expect(karteRecords(s, s.initials, cfg)[0].b4Detail).toBe('2本');
   });
+  it('文に出さない数を写す設定にする前に作った記録も、寸法の数で補って【】に出す（文を手で直していなければ）', () => {
+    const c = structuredClone(cfgJson);
+    c.initialSurvey.detailParts.circ = { type: 'pair', label: '周囲長／幹周', noText: true };
+    c.initialSurvey.forms.initial.sections[1].items[0].parts.push('circ');
+    c.noteMeasures.kinds.find((k) => k.key === 'deadBranch').parts.push('circ');
+    c.initialSurvey.fromMeasures[0].parts.circ = 'circ';
+    const values = { count: '2', circ: { a: '25', b: '187' } };
+    const line = measureLine(c, 'deadBranch', '', values);
+    const tree = need('AB001', { notes: `・${line}`, measures: [measureRecord('deadBranch', '', values, line)] });
+    let s = S([tree]);
+    s = startInitial(s, tree, cfg).state; // 前の設定で作った記録（周囲長／幹周を持っていない）
+    expect(s.initials[0].b4DetailParts.circ).toBeUndefined();
+    expect(karteRecords(s, s.initials, c)[0].b4Detail).toBe(`${s.initials[0].b4Detail}【25/187】`);
+    // 文を手で直した記録には補わない
+    const manual = { ...s, initials: s.initials.map((r) => ({ ...r, b4Detail: '手で直した', b4DetailManual: true })) };
+    expect(karteRecords(manual, manual.initials, c)[0].b4Detail).toBe('手で直した');
+  });
   it('枯死の木の枝長/枝径は表記の文字', () => {
     const tree = need('AB001', { vigor: cfg.deadVigor, branchLen: '7', branchDia: '0.3' });
     expect(karteExtras(tree, { height: 10, girth: 1 }, cfg)['@branchRatio']).toBe(cfg.calc.deadLabel);
@@ -257,6 +276,70 @@ describe('入力画面の部品（並び・選択肢・すべて無・未入力�
     expect(fillNone({}, sec2, c2, (it) => it.options || ['無', '有']).record.stake).toBe('無');
     expect(validateConfig(c2)).toEqual({ ok: true, errors: [] });
   });
+  it('食い違いの注意：詳細があるのに「無」・未選択、簡易診断で「有」なのに詳しい診断で「有」がない（crossCheck）', () => {
+    const c = structuredClone(cfgJson);
+    c.initialSurvey.crossCheck = [{ field: 'deadBranch', eq: ['有'], items: ['b4'] }];
+    expect(validateConfig(c).errors).toEqual([]);
+    const tree = need('AB001', { deadBranch: '有', deadBranchCount: '2' });
+    const sec = c.initialSurvey.forms.initial.sections.find((x) => x.items.some((it) => it.key === 'b4'));
+    const name = `${sec.title.split('・').pop()}の${sec.items.find((it) => it.key === 'b4').label}`;
+    expect(initialWarnings({ b4: '無', b4Detail: '2本' }, tree, c)).toEqual([
+      `${name}：詳細が入っていますが「無」です`,
+      `簡易診断で${c.checks.find((x) => x.key === 'deadBranch').label}が「有」ですが、${name}が「有」になっていません`,
+    ]);
+    expect(initialWarnings({ b4Detail: '2本' }, tree, c)[0]).toBe(`${name}：詳細が入っていますが「未選択」です`);
+    expect(initialWarnings({ b4: '有（小）', b4Detail: '2本' }, tree, c)).toEqual([]);
+    expect(initialWarnings({ b4: '無' }, { ...tree, deadBranch: '無' }, c)).toEqual([]);
+    // 形の違う設定は使わない
+    c.initialSurvey.crossCheck = [{ field: 'deadBranch', eq: '有', items: ['nokey'] }];
+    expect(validateConfig(c).errors.join()).toContain('crossCheck[0].items');
+  });
+  it('組になる項目（linked）：どれかが決まった値（例「支柱なし」）なのに、ほかが別の値なら注意する（推奨。保存は止めない）', () => {
+    const c = structuredClone(cfgJson);
+    c.initialSurvey.linked = [{ items: ['stake', 'weather'], value: '支柱なし' }];
+    expect(validateConfig(c).errors).toEqual([]);
+    const label = (k) => c.initialSurvey.forms.environment.sections.flatMap((x) => x.items).find((it) => it.key === k).label;
+    expect(initialWarnings({ stake: '支柱なし', weather: '有' }, null, c)).toEqual([`${label('stake')}が「支柱なし」ですが、${label('weather')}は「有」です`]);
+    expect(initialWarnings({ stake: '支柱なし', weather: '支柱なし' }, null, c)).toEqual([]);
+    expect(initialWarnings({ stake: '支柱なし' }, null, c)).toEqual([]); // 未選択は「未入力の項目」で知らせる
+    expect(initialWarnings({ stake: '有', weather: '有' }, null, c)).toEqual([]);
+    c.initialSurvey.linked = [{ items: ['stake', 'nokey'], value: '支柱なし' }];
+    expect(validateConfig(c).errors.join()).toContain('linked[0].items');
+    c.initialSurvey.linked = [{ items: ['stake'], value: '支柱なし' }];
+    expect(validateConfig(c).errors.join()).toContain('linked[0]');
+  });
+  it('食い違いがあれば、保存の前に確かめる（このまま保存もできる）', () => {
+    const c = structuredClone(cfgJson);
+    c.initialSurvey.crossCheck = [{ field: 'deadBranch', eq: '有', items: ['b4'] }];
+    const tree = need('AB001', { deadBranch: '有' });
+    let s = startInitial(S([tree]), tree, c).state;
+    const id = s.initials[0].id;
+    const r = saveInitial(s, id, c);
+    expect(r.saved).toBe(false);
+    expect(r.warnings.length).toBe(1);
+    expect(saveInitial(s, id, c, { force: true }).saved).toBe(true);
+  });
+  it('【再現】入力済みの記録を後日直しても、元の調査日・調査者のまま', () => {
+    const tree = need('AB001');
+    let s = startInitial(S([tree], { session: { date: '2099-05-06', inspector: '試験 二郎' } }), tree, cfg).state;
+    const id = s.initials[0].id;
+    const st = cfg.initialSurvey.stamp;
+    s = saveInitial(s, id, cfg, { force: true }).state;
+    const first = s.initials[0];
+    expect([first[st.date[0]], first[st.date[1]], first[st.date[2]], first[st.inspector]]).toEqual([2099, 5, 6, '試験 二郎']);
+    s = { ...s, session: { date: '2099-06-01', inspector: '試験 三郎' } };
+    s = saveInitial(s, id, cfg, { force: true }).state;
+    const again = s.initials[0];
+    expect([again[st.date[0]], again[st.date[1]], again[st.date[2]], again[st.inspector]]).toEqual([2099, 5, 6, '試験 二郎']);
+  });
+  it('「すべて無」は、詳細（簡易診断から写した寸法など）が入っている弱点の項目を「無」にしない', () => {
+    const sec = cfg.initialSurvey.forms.initial.sections.find((x) => x.items.some((it) => it.key === 'b4'));
+    const r = fillNone({ b4Detail: '2本、地上3m' }, sec, cfg, () => ['無', '有（小）', '有（大）']);
+    expect(r.record.b4).toBeUndefined();
+    expect(r.kept).toEqual([sec.items.find((it) => it.key === 'b4').label]);
+    // 有無を選んであれば、これまでどおり触らない
+    expect(fillNone({ b4: '有（小）', b4Detail: '2本' }, sec, cfg, () => ['無', '有（小）']).kept).toEqual([]);
+  });
 
   it('未入力は現場の選択肢の項目だけ数え、保存で調査日・調査者を記録する', () => {
     let s = startInitial({ ...S([need('AB001')]), session: { date: '2099-05-06', inspector: '試験 二郎(資格)' } }, need('AB001'), cfg).state;
@@ -351,6 +434,98 @@ describe('特記事項の寸法の引き継ぎ', () => {
     expect(r.inherited).toContain('b4Detail');
     expect(r.b4).toBeUndefined(); // 「有」の程度は写さない（人が選ぶ）
   });
+
+  it('寸法の1行がなくても、簡易診断の枯れ枝の本数（種類の prefill）を写す', () => {
+    const t = need('AB001', { deadBranch: '有', deadBranchCount: '3' });
+    const r = startInitial(S([t]), t, cfg).record;
+    expect(r.b4DetailParts).toEqual({ count: '3' });
+    expect(r.b4Detail).toBe('3本');
+    expect(r.inherited).toContain('b4Detail');
+  });
+
+  it('【再現】詳しい診断で直していない項目は、簡易診断の寸法に自動で合わせる（足した・直した・消した）', () => {
+    const v = (count) => ({ count, height: { a: '3' } });
+    const rec2 = (count) => ({ kind: 'deadBranch', place: '', values: v(count) });
+    let t = need('AB001');
+    let s = startInitial(S([t]), t, cfg).state;
+    let rec = s.initials[0];
+    expect(syncMeasures(rec, t, cfg).changed).toEqual([]);
+    // 後から寸法を足した（新しい形：寸法は一覧だけ）
+    t = { ...t, measuresV: 2, measures: [rec2('2')] };
+    let r = syncMeasures(rec, t, cfg);
+    expect(r.changed).toEqual(['枯れ枝']);
+    rec = r.record;
+    expect(rec.b4Detail).toBe('2本、地上3m');
+    // 簡易で直した → ついてくる
+    t = { ...t, measures: [rec2('4')] };
+    rec = syncMeasures(rec, t, cfg).record;
+    expect(rec.b4Detail).toBe('4本、地上3m');
+    expect(measureStatus(rec, t, cfg)).toEqual([{ key: 'b4Detail', label: '枯れ枝', follow: true, differs: false, simpleText: '4本、地上3m' }]);
+    // 詳しい診断で数値を直した → もうついてこない。違えば知らせる
+    const mine = { ...rec, b4DetailParts: { count: '5', height: { a: '3' } }, b4Detail: '5本、地上3m' };
+    expect(measureStatus(mine, t, cfg)[0]).toMatchObject({ follow: false, differs: true });
+    expect(syncMeasures(mine, t, cfg).changed).toEqual([]);
+    // 簡易に合わせる
+    expect(applyMeasures(mine, t, cfg, ['b4Detail']).b4Detail).toBe('4本、地上3m');
+    // 詳細の文を手で直した → ついてこない
+    const manual = { ...rec, b4Detail: '手で直した文', b4DetailManual: true };
+    expect(syncMeasures(manual, { ...t, measures: [rec2('6')] }, cfg).changed).toEqual([]);
+    // 簡易で寸法を消した → ついてきている項目は詳細も消える（本数は簡易の枯れ枝の本数から入る）
+    const gone = syncMeasures(rec, { ...t, measures: [], deadBranchCount: '' }, cfg).record;
+    expect(gone.b4Detail).toBe('');
+    expect(gone.b4DetailParts).toBeUndefined();
+  });
+
+  it('【再現】簡易にない数値を初期で足しただけでは「違う」と出さず、「簡易に合わせる」でも消さない', () => {
+    const t0 = need('AB001');
+    let s = startInitial(S([t0]), t0, cfg).state;
+    let t = { ...t0, measuresV: 2, measures: [{ kind: 'deadBranch', place: '', values: { count: '1' } }] };
+    let rec = syncMeasures(s.initials[0], t, cfg).record;
+    expect(rec.b4Detail).toBe('1本');
+    // 初期で高さを足した
+    const mine = { ...rec, b4DetailParts: { count: '1', height: { a: '3' } }, b4Detail: '1本、地上3m' };
+    expect(measureStatus(mine, t, cfg)[0]).toMatchObject({ follow: false, differs: false });
+    // 簡易で本数を変えた → 違いを知らせる。合わせても高さは残す
+    t = { ...t, measures: [{ kind: 'deadBranch', place: '', values: { count: '2' } }] };
+    expect(measureStatus(mine, t, cfg)[0]).toMatchObject({ follow: false, differs: true });
+    const m = applyMeasures(mine, t, cfg, ['b4Detail'], { merge: true });
+    expect(m.b4DetailParts).toEqual({ count: '2', height: { a: '3' } });
+    expect(m.b4Detail).toBe('2本、地上3m');
+    expect(measureStatus(m, t, cfg)[0]).toMatchObject({ follow: false, differs: false });
+    // ついてきている項目は、簡易で欄を消せば初期でも消える
+    const follow = syncMeasures(rec, { ...t, measures: [{ kind: 'deadBranch', place: '', values: { count: '1', height: { a: '2' } } }] }, cfg).record;
+    expect(follow.b4Detail).toBe('1本、地上2m');
+    expect(syncMeasures(follow, { ...t, measures: [{ kind: 'deadBranch', place: '', values: { count: '1' } }] }, cfg).record.b4Detail).toBe('1本');
+    // 初期で箇所を足しただけも違いにしない
+    const two = { ...rec, b4DetailParts: { count: '1', more: [{ count: '3' }] } };
+    expect(measureStatus(two, { ...t, measures: [{ kind: 'deadBranch', place: '', values: { count: '1' } }] }, cfg)[0].differs).toBe(false);
+    // 簡易にある値を初期で消したのは違い
+    const cut = { ...rec, b4DetailParts: { height: { a: '3' } } };
+    expect(measureStatus(cut, t, cfg)[0].differs).toBe(true);
+  });
+
+  it('【再現】前の形で寸法の1行を手で直しても、初期の詳細が「写す」で消えない（数値が減るだけの書き換えをしない）', () => {
+    // 前の形：寸法の1行が特記事項の文字にある。後ろに言葉を足した行は、備考がない設定ではふつうの文と寸法の両方として残す
+    const line = '枯れ枝：2本、地上3m';
+    const t = need('AB001', { deadBranch: '有', deadBranchCount: '2', notes: `・${line}`, measures: [{ kind: 'deadBranch', place: '', values: { count: '2', height: { a: '3' } }, line }] });
+    const s = startInitial(S([t]), t, cfg).state;
+    const rec = s.initials[0];
+    expect(rec.b4Detail).toBe('2本、地上3m');
+    const edited = { ...t, notes: `・${line}、園路上` };
+    expect(syncMeasures(rec, edited, cfg).record.b4Detail).toBe('2本、地上3m');
+    const v2 = toMeasuresV2(edited, cfg);
+    expect(v2.measures).toHaveLength(1);
+    expect(syncMeasures(rec, v2, cfg).record.b4Detail).toBe('2本、地上3m');
+  });
+
+  it('前の版で作った記録（写した印がない）は、写した値と同じなら合わせ直さない', () => {
+    const line = '枯れ枝：2本';
+    const t = need('AB001', { notes: `・${line}`, measures: [{ kind: 'deadBranch', place: '', values: { count: '2' }, line }] });
+    const { measureSig, ...old } = startInitial(S([t]), t, cfg).record;
+    expect(measureSig).toBeTruthy();
+    expect(syncMeasures(old, t, cfg).changed).toEqual([]);
+    expect(measureStatus(old, t, cfg)[0]).toMatchObject({ follow: true, differs: false });
+  });
 });
 
 describe('一覧表の健全度への書き戻し', () => {
@@ -399,5 +574,111 @@ describe('空欄のときに入れる値（blank）', () => {
     const c = structuredClone(cfgJson);
     c.initialSurvey.forms.initial.sections[0].items[2].blank = 3;
     expect(validateConfig(c).errors.join()).toContain('blank');
+  });
+});
+
+describe('開口空洞の有無の選択肢を、簡易診断の寸法から決める（項目の valueFrom）', () => {
+  it('記録を作るとき・簡易の寸法に合わせるときに、有無の選択肢も入れる', () => {
+    const c = structuredClone(cfgJson);
+    c.noteMeasures.kinds.push({ key: 'cavity', label: '開口空洞', parts: ['height', 'circ', 'core'] });
+    const dp = c.initialSurvey.detailParts;
+    dp.circ = { type: 'pair', label: '周囲長', noText: true, ratio: { num: 1, den: 3, lt: '＜1/3', ge: '≧1/3' } };
+    dp.coreReach = { type: 'flag', label: '芯達', text: '（芯達）', noText: true };
+    c.initialSurvey.forms.initial.sections[1].items.push({
+      key: 't1', label: '開口空洞', type: 'weak', parts: ['height', 'circ', 'coreReach'],
+      valueFrom: { ratio: 'circ', core: 'coreReach', values: { lt: '有（周囲＜1/3）', ge: '有（周囲≧1/3）', coreLt: '有（芯到達・周囲＜1/3）', coreGe: '有（芯到達・周囲≧1/3）' } },
+    });
+    c.initialSurvey.fromMeasures.push({ kind: 'cavity', item: 't1', parts: { height: 'height', circ: 'circ', core: 'coreReach' } });
+    expect(validateConfig(c).errors).toEqual([]);
+    const m = (values) => measureRecord('cavity', '幹', values, measureLine(c, 'cavity', '幹', values));
+    const tree = need('AB001', { measuresV: 2, measures: [m({ height: { a: '1' }, circ: { a: '40', b: '150' }, core: true })] });
+    const s = startInitial(S([tree]), tree, c).state;
+    expect(s.initials[0].t1).toBe('有（芯到達・周囲＜1/3）');
+    expect(s.initials[0].t1Detail).toBe('地上1m');
+    // 簡易で周囲長を直す → 合わせると選択肢も変わる
+    const tree2 = { ...tree, measures: [m({ height: { a: '1' }, circ: { a: '60', b: '150' }, core: false })] };
+    expect(syncMeasures(s.initials[0], tree2, c).record.t1).toBe('有（周囲≧1/3）');
+  });
+});
+
+describe('詳しい診断の芯達／芯未達を選んでいない「有」の項目は、保存の前に注意する', () => {
+  it('「有」の項目だけ。箇所が2つ以上なら番号を付ける', () => {
+    const c = structuredClone(cfgJson);
+    c.initialSurvey.detailParts.core.required = true;
+    c.initialSurvey.detailParts.core.offLabel = '芯未達';
+    const sec = c.initialSurvey.forms.initial.sections[1];
+    sec.items.push({ key: 't2', label: '腐朽', type: 'weak', parts: ['height', 'size', 'core'] });
+    expect(validateConfig(c).errors).toEqual([]);
+    const name = `${sec.title.split('・').pop()}の腐朽`;
+    expect(initialWarnings({ t2: '有（小）', t2DetailParts: { height: { a: '1' } } }, null, c)).toEqual([`${name}：芯達か芯未達かを選んでください`]);
+    expect(initialWarnings({ t2: '有（小）', t2DetailParts: { height: { a: '1' }, core: false } }, null, c)).toEqual([]);
+    expect(initialWarnings({ t2: '有（小）', t2DetailParts: { height: { a: '1' }, core: true, more: [{ height: { a: '2' } }] } }, null, c)).toEqual([`${name}：②の芯達か芯未達かを選んでください`]);
+    expect(initialWarnings({ t2: '無' }, null, c)).toEqual([]);
+  });
+});
+
+describe('簡易診断の特記事項が詳しい診断に反映されているか（noteCheck）。画面の一覧と保存の前の注意', () => {
+  const cfgOf = () => {
+    const c = structuredClone(cfgJson);
+    c.initialSurvey.forms.initial.sections[1].items.push({ key: 's2', label: '露出根の腐朽', type: 'weak' }, { key: 't2', label: '腐朽', type: 'weak', parts: ['height', 'size', 'name'] });
+    c.initialSurvey.noteCheck = [
+      { notes: ['根元の割れ'], items: ['s2', 'stake'] },
+      { field: 'fungusName', items: ['t2'] },
+    ];
+    return c;
+  };
+  const tree = (o = {}) => need('AB001', { notes: '・根元の割れ\n・枝の偏り\n・南側にベンチ', ...o });
+
+  it('定型文：対応する項目のどれかが「有」（選択肢の項目は「無」以外）なら反映済み。対応がない定型文・手で書いた行は判断しない', () => {
+    const c = cfgOf();
+    expect(validateConfig(c).errors).toEqual([]);
+    const r = simpleNotesStatus({ s2: '無' }, tree(), c);
+    expect(r.map((x) => [x.text, x.state])).toEqual([
+      ['根元の割れ', 'missing'],
+      ['枝の偏り', 'free'],
+      ['南側にベンチ', 'free'],
+    ]);
+    expect(simpleNotesStatus({ stake: '有' }, tree(), c)[0].state).toBe('ok');
+    expect(initialWarnings({ s2: '無' }, tree(), c).some((w) => w.includes('根元の割れ'))).toBe(true);
+    expect(initialWarnings({ s2: '有（小）' }, tree(), c).some((w) => w.includes('根元の割れ'))).toBe(false);
+  });
+
+  it('⑦の名前（寸法なし）：詳しい診断の項目の詳細の文にあれば反映済み。「有」のときだけ見る', () => {
+    const c = cfgOf();
+    const t = tree({ fungus: '有', fungusName: 'ツヨイタケ' });
+    const miss = simpleNotesStatus({}, t, c).find((x) => x.kind === 'field');
+    expect(miss).toMatchObject({ state: 'missing', text: 'キノコの名前：ツヨイタケ（寸法なし）' });
+    expect(simpleNotesStatus({ t2Detail: '地上1m、ツヨイタケ' }, t, c).find((x) => x.kind === 'field').state).toBe('ok');
+    expect(simpleNotesStatus({}, { ...t, fungus: '無' }, c).find((x) => x.kind === 'field')).toBeUndefined();
+  });
+
+  it('寸法の1行：写す規則があれば写る項目、なければ「写す項目がありません」（注意にはしない）', () => {
+    const c = cfgOf();
+    const v = { height: { a: '1' } };
+    const ms = [measureRecord('decay', '幹', v, measureLine(c, 'decay', '幹', v))];
+    const r = simpleNotesStatus({}, need('AB001', { notes: '', measuresV: 2, measures: ms }), c);
+    expect(r).toEqual([{ text: ms[0].line, kind: 'measure', state: 'none', note: `${c.initialSurvey.label}に写す項目がありません` }]);
+    expect(initialWarnings({}, need('AB001', { notes: '', measuresV: 2, measures: ms }), c).join()).not.toContain(ms[0].line);
+  });
+
+  it('形の違う設定は使わない', () => {
+    const c = cfgOf();
+    c.initialSurvey.noteCheck = [{ notes: ['ない定型文'], items: ['s2'] }];
+    expect(validateConfig(c).errors.join()).toContain('noteCheck[0].notes');
+    c.initialSurvey.noteCheck = [{ notes: ['根元の割れ'], items: ['nokey'] }];
+    expect(validateConfig(c).errors.join()).toContain('noteCheck[0].items');
+    c.initialSurvey.noteCheck = [{ notes: ['根元の割れ'], field: 'fungusName', items: ['s2'] }];
+    expect(validateConfig(c).errors.join()).toContain('noteCheck[0]');
+  });
+});
+
+describe('noteCheck の alias：表記の違う名前を同じとみなす', () => {
+  it('「不明種」は詳細の「不明」でも反映済み', () => {
+    const c = structuredClone(cfgJson);
+    c.initialSurvey.forms.initial.sections[1].items.push({ key: 't2', label: '腐朽', type: 'weak' });
+    c.initialSurvey.noteCheck = [{ field: 'fungusName', items: ['t2'], alias: { 不明種: ['不明'] } }];
+    expect(validateConfig(c).errors).toEqual([]);
+    const t = need('AB001', { fungus: '有', fungusName: '不明種' });
+    expect(simpleNotesStatus({ t2Detail: '30cm×15cm、不明' }, t, c).find((x) => x.kind === 'field').state).toBe('ok');
   });
 });

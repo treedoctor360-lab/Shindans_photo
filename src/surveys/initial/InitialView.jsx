@@ -3,9 +3,10 @@
 //  選択肢は設定かデータ入力用ブックの入力規則から。簡易診断から引き継いだ項目には「簡易から」と出す。
 //  事務の端末では表示だけ（直すのは調査者）。
 //  データ入力用ブックに手で入力済みの木は、ブックの内容を表示だけする（「アプリで入力し直す」でブックの値を下書きにできる）。
-import { useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useBarHeight } from '../../ui/useTopHeight.js';
 import { toHalf } from '../../core/text.js';
+import KarteView from '../../ui/KarteView.jsx';
 import {
   INITIAL_STATUS_LABEL,
   bookEntry,
@@ -16,16 +17,23 @@ import {
   formOf,
   initialOf,
   initialStatus,
+  initialWarnings,
+  isInitialTarget,
   missingInitial,
   initialWordingIssues,
   fixInitialWording,
   optionsOf,
+  applyMeasures,
+  matchPreview,
+  measureStatus,
+  syncInitialOfTree,
   saveInitial,
   startInitial,
   updateInitial,
   withdrawInitial,
+  simpleNotesStatus,
 } from '../../store/initial.js';
-import { checkNumbers, manualKeyOf, partsKeyOf, partsOf, rebuildDetail, setDetailText, setPart } from '../../core/detailParts.js';
+import { addEntry, checkNumbers, circled, entriesOf, manualKeyOf, partsKeyOf, partsOf, rebuildDetail, removeEntry, requiredFlags, setDetailText, setPart } from '../../core/detailParts.js';
 import PartsInputs from '../../ui/PartsInputs.jsx';
 import PrevPanel from '../../ui/PrevPanel.jsx';
 import SessionStamp from '../../ui/SessionStamp.jsx';
@@ -48,28 +56,88 @@ function Choice({ k, opts, value, onPress }) {
 }
 
 // 弱点の詳細の数値（本数・高さ・大きさなど）。入れると、下の詳細の文を組み立てる
+//  箇所が2つ以上なら（例 幹の腐朽が3か所。簡易診断の寸法から写したとき・「別の箇所を足す」を押したとき）、①②…ごとに数値の欄を並べる。
+//  項目全体の部品（whole。例 子実体の種名）は①の欄にだけ出す
 function DetailParts({ it, dk, rec, cfg, edit }) {
+  const parts = partsOf(it, cfg);
+  const es = entriesOf(rec[partsKeyOf(dk)]);
+  const many = es.length > 1;
+  // 必ず選ぶ印（例 芯達か芯未達か。部品の required: true）は2つのボタンで選ぶ
+  const required = requiredFlags(parts, '');
   return (
-    <PartsInputs
-      parts={partsOf(it, cfg)}
-      values={rec[partsKeyOf(dk)] || {}}
-      onPut={(name, v) => edit((r) => setPart(r, it, dk, name, v, cfg))}
-      testId={dk}
-      Choice={Choice}
-      pi={cfg.calc?.pi}
-    />
+    <div className="entries" data-entries={dk}>
+      {es.map((e, i) => (
+        <div className="entry" key={i} data-entry={i}>
+          {many && (
+            <div className="entry-head">
+              <b>{circled(i)}</b>
+              <button type="button" className="btn" onClick={() => edit((r) => removeEntry(r, it, dk, i, cfg))} data-remove-entry={i}>
+                この箇所を消す
+              </button>
+            </div>
+          )}
+          <PartsInputs
+            parts={i === 0 ? parts : parts.filter((p) => !p.whole)}
+            values={e}
+            onPut={(name, v) => edit((r) => setPart(r, it, dk, name, v, cfg, i))}
+            testId={i === 0 ? dk : `${dk}.${i}`}
+            Choice={Choice}
+            pi={cfg.calc?.pi}
+            required={required}
+            rows
+            noAddSize
+          />
+        </div>
+      ))}
+      <button type="button" className="more" onClick={() => edit((r) => addEntry(r, it, dk, cfg))} data-add-entry={dk}>
+        ＋ 別の箇所を足す（{circled(es.length)}）
+      </button>
+    </div>
+  );
+}
+
+// 簡易診断の特記事項（と⑦などの入力）が、詳しい診断に反映されているか。弱点の入力の手前に1か所にまとめて出す
+//  反映されていないもの（黄）を先に、反映済み（緑）・手で書いた行（灰）を後に
+function SimpleNotes({ rows }) {
+  if (!rows.length) return null;
+  const miss = rows.filter((x) => x.state === 'missing' || x.state === 'none').length;
+  return (
+    <div className="sec simple-notes" data-testid="simple-notes">
+      <h2>
+        簡易の特記事項{miss > 0 && <small className="tag w" data-testid="simple-notes-miss">未反映 {miss}</small>}
+      </h2>
+      <ul className="sn-list">
+        {rows.map((x, i) => (
+          <li key={i} className={`sn ${x.state}`} data-sn={x.state} data-kind={x.kind}>
+            <span>{x.text}</span>
+            <small>{x.note}</small>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
 // 選択肢が多い・長い項目は、見出しの下にボタンを並べる（見出しの横だと、どの項目のボタンか分かりにくいため）
 const isWide = (opts) => opts.length > 3 || opts.some((o) => String(o).length > 4) || opts.join('').length > 10;
 
-function Item({ it, rec, cfg, opts, set, press, edit, inGrid = false }) {
+// mstat：その弱点の詳細と簡易診断の寸法の関係（store/initial.js の measureStatus）。onMatch：「簡易に合わせる」
+//  preview：「簡易に合わせる」を押したときに変わる文（{ before, after }）。押すと先にこれを見せ、「合わせる」で確かめてから変える
+function Item({ it, rec, cfg, opts, set, press, edit, mstat, onMatch, preview, inGrid = false }) {
   const v = rec[it.key] ?? '';
+  const [asking, setAsking] = useState(false);
   const tags = (
     <>
       {it.desk && <small className="tag">後で</small>}
-      {(rec.inherited?.includes(it.key) || (it.type === 'weak' && rec.inherited?.includes(detailKeyOf(it)))) && <small className="tag prev">簡易から</small>}
+      {mstat ? (
+        mstat.follow ? (
+          mstat.simpleText && <small className="tag prev" data-mstat="follow">簡易の寸法から</small>
+        ) : (
+          <small className="tag" data-mstat="manual">{cfg.initialSurvey.label.replace(/（.*$/, '')}で直した</small>
+        )
+      ) : (
+        (rec.inherited?.includes(it.key) || (it.type === 'weak' && rec.inherited?.includes(detailKeyOf(it)))) && <small className="tag prev">簡易から</small>
+      )}
       {rec.fromBook?.includes(it.key) && <small className="tag prev">ブックから</small>}
       {it.hint && <small>{it.hint}</small>}
     </>
@@ -112,6 +180,46 @@ function Item({ it, rec, cfg, opts, set, press, edit, inGrid = false }) {
         {checkNumbers(rec[partsKeyOf(dk)], partsOf(it, cfg)).length > 0 && (
           <div className="hint" data-check={dk}>
             入力した数：【{checkNumbers(rec[partsKeyOf(dk)], partsOf(it, cfg)).join('、')}】（確認用カルテにだけ出します。ブックには書きません）
+          </div>
+        )}
+        {/* 詳しい診断で直した項目が、簡易診断の寸法と違う。「簡易に合わせる」で戻せる */}
+        {mstat && !mstat.follow && mstat.differs && (
+          <div className="alert warn" data-testid="measure-differs" data-differs={dk}>
+            <span>簡易の寸法と違います（簡易：{mstat.simpleText || 'なし'}）</span>
+            {onMatch && !asking && (
+              <div className="acts">
+                <button type="button" className="btn" onClick={() => setAsking(true)} data-match={dk}>
+                  簡易に合わせる
+                </button>
+              </div>
+            )}
+            {/* 押す前に変わる所を見せる。簡易に入っている値だけを置き換え、初期で足した数値は残す */}
+            {onMatch && asking && preview && (
+              <div data-match-ask={dk}>
+                <div>
+                  {preview.before === preview.after
+                    ? '詳細の文は変わりません（文に出さない数値（確認用カルテの【】）だけを簡易に合わせます）。'
+                    : `「${preview.before || '（なし）'}」→「${preview.after || '（なし）'}」にします。`}
+                  簡易にない数値はそのまま残します。
+                </div>
+                <div className="acts">
+                  <button
+                    type="button"
+                    className="btn fill"
+                    onClick={() => {
+                      setAsking(false);
+                      onMatch(dk);
+                    }}
+                    data-match-ok={dk}
+                  >
+                    合わせる
+                  </button>
+                  <button type="button" className="btn" onClick={() => setAsking(false)} data-match-cancel={dk}>
+                    やめる
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         {rec[manualKeyOf(dk)] && edit && partsOf(it, cfg).length > 0 && (
@@ -178,21 +286,41 @@ function itemOf(cfg, key) {
   return null;
 }
 
-export default function InitialView({ state, update, config: cfg, toast, send }) {
+// 入力済みの記録の調査日・調査者（保存してもそのまま。SessionStamp に出す）
+function keptStamp(rec, cfg) {
+  const st = cfg.initialSurvey?.stamp || {};
+  if (!rec?.done) return null;
+  const [y, m, d] = (st.date || []).map((k) => rec[k]);
+  const date = y && m && d ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` : '';
+  const inspector = st.inspector ? rec[st.inspector] || '' : '';
+  return date || inspector ? { date, inspector } : null;
+}
+
+// pane：デスクトップ表示の右の列として出す（記録もブックの内容もない木では何も出さない）
+export default function InitialView({ state, update, config: cfg, toast, send, pane = false }) {
   const forms = Object.keys(cfg?.initialSurvey?.forms || {});
   const [form, setForm] = useState(forms[0] || 'initial');
   const [missingAsk, setMissingAsk] = useState(null);
   const [askStay, setAskStay] = useState(false); // 「未入力のまま保存する」の後も、押したボタンと同じ行き先にする
   const [showBook, setShowBook] = useState(false); // アプリの記録があるとき、ブックの内容を見るか
   const [askRemove, setAskRemove] = useState(false); // 取り消し・下書きを消すの確かめ中か
+  const [showKarte, setShowKarte] = useState(false); // カルテで見る（画面に出しているか）
   useBarHeight(); // 樹木番号の帯の高さ（区切りの見出しを、その下に止めるため）
-  const tree = state.trees.find((t) => t.id === state.initialTreeId);
+  const tree = state.trees.find((t) => t.id === (pane ? state.currentId : state.initialTreeId)); // 並べて出すときは、簡易診断で開いている木
   const appRec = tree && cfg ? initialOf(state, tree, cfg) : null;
   const entry = tree && cfg?.initialSurvey ? bookEntry(state, tree, cfg) : null;
   const viewingBook = !!entry && (!appRec || showBook); // ブックの内容を表示している（表示だけ）
   const rec = viewingBook ? bookValues(entry, cfg) : appRec;
+  // 開いたとき・簡易診断の寸法が変わったとき：詳しい診断で直していない項目を簡易診断の寸法に合わせる（事務の端末は見るだけ）
+  const canSync = !!appRec && !!tree && state.user?.role !== 'office';
+  useEffect(() => {
+    // 木が変わるたびに確かめる（変わっていなければ何もしない）
+    if (canSync) update((cur) => syncInitialOfTree(cur, tree.id, cfg));
+  }, [canSync, tree]);
   const back = (view = 'list') => update((s) => ({ ...s, view, ...(view === 'form' && tree ? { currentId: tree.id } : {}) }));
 
+  // 並べて出すとき、詳しい診断の対象でなくなった木（「要」を後で「否」にした）に残っている記録は出さない
+  if (pane && (!cfg?.initialSurvey || !tree || !rec || !isInitialTarget(tree, cfg))) return null;
   if (!cfg?.initialSurvey || !tree || !rec) {
     return (
       <section className="view">
@@ -228,7 +356,23 @@ export default function InitialView({ state, update, config: cfg, toast, send })
   const press = (k, v) => update((s) => updateInitial(s, rec.id, (r) => ({ ...r, [k]: r[k] === v ? '' : v })));
   const status = initialStatus(tree, state, cfg);
   const missing = readOnly ? [] : missingInitial(rec, cfg);
+  const warnings = readOnly ? [] : initialWarnings(rec, tree, cfg); // 詳細があるのに「無」・簡易診断で「有」なのに詳しい診断で「無」
   const wording = readOnly ? [] : initialWordingIssues(rec, cfg); // 表記の統一（設定 wording）
+  // 簡易診断の寸法と弱点の詳細の関係（詳しい診断で直していない項目は、自動で簡易診断の寸法に合わせる）
+  const mstats = new Map((viewingBook ? [] : measureStatus(rec, tree, cfg)).map((x) => [x.key, x]));
+  const onMatch = (dk) => {
+    // その時点の最新の木と記録に対して行う
+    update((cur) => {
+      const t = cur.trees.find((x) => x.id === tree.id) || tree;
+      return updateInitial(cur, rec.id, (r) => applyMeasures(r, t, cfg, [dk], { merge: true }));
+    });
+    toast('簡易診断の寸法に合わせました');
+  };
+  // 「違います」と出ている項目だけ、合わせたときの文を先に作っておく
+  const previewOf = (it) => {
+    const st = it.type === 'weak' ? mstats.get(detailKeyOf(it)) : null;
+    return st && !st.follow && st.differs ? matchPreview(rec, tree, cfg, st.key) : null;
+  };
 
   // 入力の取り消し・下書きを消す
   const label = cfg.initialSurvey.label;
@@ -270,9 +414,11 @@ export default function InitialView({ state, update, config: cfg, toast, send })
 
   const onNone = (sec) => {
     const r = fillNone(rec, sec, cfg, optionsFor);
-    if (!r.keys.length) return toast('まだ選んでいない項目はありません');
+    // 詳細（寸法など）が入っているのに有無を選んでいない項目は「無」にしない
+    const keptMsg = r.kept.length ? `詳細が入っている${r.kept.join('・')}は「${cfg.initialSurvey.noneValue || '無'}」にしていません。有無を選んでください` : '';
+    if (!r.keys.length) return toast(keptMsg || 'まだ選んでいない項目はありません');
     update((s) => updateInitial(s, rec.id, () => r.record));
-    toast(`まだ選んでいなかった${r.keys.length}項目を「${cfg.initialSurvey.noneValue || '無'}」${r.custom ? '（物が無い項目は「〜なし」）' : ''}にしました`);
+    toast(`まだ選んでいなかった${r.keys.length}項目を「${cfg.initialSurvey.noneValue || '無'}」${r.custom ? '（物が無い項目は「〜なし」）' : ''}にしました` + (keptMsg ? `。${keptMsg}` : ''));
   };
   // 保存。stay：true なら同じ木の画面のまま（一覧へ戻らず、見ていた所から続けて直せる）
   const onSave = (force = false, stay = false) => {
@@ -323,6 +469,15 @@ export default function InitialView({ state, update, config: cfg, toast, send })
             ))}
           </div>
         )}
+        {/* 今の入力内容を確認用カルテの形で見る（ダウンロードしなくても確かめられる） */}
+        {cfg.initialSurvey.karte && appRec && !viewingBook && (
+          <div className="acts">
+            <button type="button" className="btn" onClick={() => setShowKarte(true)} data-testid="karte-view-open">
+              カルテで見る
+            </button>
+          </div>
+        )}
+        {showKarte && <KarteView state={state} cfg={cfg} rec={appRec} form={form} onClose={() => setShowKarte(false)} />}
         {office && !viewingBook && <div className="readonly-note">表示のみ：事務の端末では入力内容を直せません。</div>}
         {entry && (
           <div className={`alert ${viewingBook ? 'info' : 'warn'}`} data-testid="book-note">
@@ -368,7 +523,10 @@ export default function InitialView({ state, update, config: cfg, toast, send })
 
       <fieldset disabled={readOnly} className="form-body">
         {f.sections.map((sec, i) => (
-          <div className="sec" key={`${form}-${i}`} data-section={i}>
+          <Fragment key={`${form}-${i}`}>
+          {/* 弱点の入力（「すべて無」のある最初の区切り）の手前に、簡易の特記事項をまとめて出す */}
+          {i === f.sections.findIndex((x) => x.none) && !viewingBook && <SimpleNotes rows={simpleNotesStatus(rec, tree, cfg)} />}
+          <div className="sec" data-section={i}>
             <h2>{sec.title}</h2>
             {sec.none && !readOnly && (
               <button type="button" className="btn" onClick={() => onNone(sec)} data-testid={`none-${i}`}>
@@ -380,14 +538,15 @@ export default function InitialView({ state, update, config: cfg, toast, send })
               g.grid ? (
                 <div className="grid2 item" key={g.items[0].key}>
                   {g.items.map((it) => (
-                    <Item key={it.key} it={it} rec={rec} cfg={cfg} opts={optionsFor(it)} set={set} press={press} edit={readOnly ? null : edit} inGrid />
+                    <Item key={it.key} it={it} rec={rec} cfg={cfg} opts={optionsFor(it)} set={set} press={press} edit={readOnly ? null : edit} inGrid mstat={it.type === 'weak' ? mstats.get(detailKeyOf(it)) : null} onMatch={readOnly ? null : onMatch} preview={previewOf(it)} />
                   ))}
                 </div>
               ) : (
-                <Item key={g.items[0].key} it={g.items[0]} rec={rec} cfg={cfg} opts={optionsFor(g.items[0])} set={set} press={press} edit={readOnly ? null : edit} />
+                <Item key={g.items[0].key} it={g.items[0]} rec={rec} cfg={cfg} opts={optionsFor(g.items[0])} set={set} press={press} edit={readOnly ? null : edit} mstat={g.items[0].type === 'weak' ? mstats.get(detailKeyOf(g.items[0])) : null} onMatch={readOnly ? null : onMatch} preview={previewOf(g.items[0])} />
               ),
             )}
           </div>
+          </Fragment>
         ))}
       </fieldset>
 
@@ -416,12 +575,22 @@ export default function InitialView({ state, update, config: cfg, toast, send })
 
       {!readOnly && (
         <div className="savebar">
-          {missingAsk && missing.length > 0 ? (
-            <div className="alert warn" role="alert">
-              <span>未入力があります：{missing.join('、')}</span>
+          {/* 入力の食い違い（保存の前から出しておく） */}
+          {warnings.length > 0 && !(missingAsk && missing.length + warnings.length > 0) && (
+            <div className="alert warn" data-testid="initial-warnings">
+              <span>確かめてください：{warnings.join('／')}</span>
+            </div>
+          )}
+          {missingAsk && missing.length + warnings.length > 0 ? (
+            <div className="alert warn" role="alert" data-testid="initial-save-ask">
+              <span>
+                {missing.length > 0 && <>未入力があります：{missing.join('、')}</>}
+                {missing.length > 0 && warnings.length > 0 && <br />}
+                {warnings.length > 0 && <>確かめてください：{warnings.join('／')}</>}
+              </span>
               <div className="acts">
                 <button type="button" className="btn" onClick={() => onSave(true, askStay)}>
-                  未入力のまま保存する
+                  {missing.length > 0 ? '未入力のまま保存する' : 'このまま保存する'}
                 </button>
               </div>
             </div>
@@ -450,7 +619,7 @@ export default function InitialView({ state, update, config: cfg, toast, send })
               </div>
             </div>
           )}
-          <SessionStamp state={state} update={update} />
+          <SessionStamp state={state} update={update} kept={keptStamp(rec, cfg)} />
           <button type="button" className="btn fill big" onClick={() => onSave(false)} data-testid="save-initial">
             保存して一覧へ
           </button>

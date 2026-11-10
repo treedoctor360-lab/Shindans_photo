@@ -22,7 +22,7 @@
 // 保存する前に、書き出したファイルを読み直して照合する。1件でも食い違えば保存しない。
 
 import ExcelJS from 'exceljs';
-import { fitSize, sheetGeometry } from './fitText.js';
+import { fitSize, heightNeeded, setRowHeights, sheetGeometry } from './fitText.js';
 import JSZip from 'jszip';
 import { toHalf } from '../core/text.js';
 import { fillFmt, karteValue } from '../core/karteCells.js';
@@ -252,7 +252,7 @@ export async function exportKarte(templateBuffer, records, cfg) {
   const mark = k.mark ?? DEFAULT_MARK;
   const tpl = await readKarteTemplate(templateBuffer.slice(0), cfg);
   const errors = [];
-  const stats = { sheets: [], skippedNoTemplate: [], tooLong: [] }; // tooLong：最小の大きさでも枠に収まらない欄 [{ sheet, cell }]
+  const stats = { sheets: [], skippedNoTemplate: [], tooLong: [], grown: [] }; // tooLong：最小の大きさでも枠に収まらない欄 [{ sheet, cell }]。grown：収めるために行の高さを広げた欄 [{ sheet, cell, row }]
   const src = await JSZip.loadAsync(templateBuffer);
   const base = new Map(); // 様式の form|siteType → 整えた XML
   for (const s of tpl.sheets) {
@@ -289,6 +289,7 @@ export async function exportKarte(templateBuffer, records, cfg) {
     }
     for (const spec of specs) {
       const key = `${spec.form}|${spec.siteType}`;
+      const grow = new Map(); // 広げる行（行の番号 → 高さ pt）。最小の大きさでも収まらない文の枠の、いちばん下の行
       const edits = spec.cells.map((c) => {
         const e = { addr: c.cell, value: c.keep ? undefined : karteValue(c, rec), replaceFormula: !!c.replaceFormula, keepValue: !!c.keep };
         const code = fillFmt(c.fmt, rec);
@@ -299,26 +300,41 @@ export async function exportKarte(templateBuffer, records, cfg) {
           // 文が枠に収まらなければ、文字を小さくして折り返す（最小 minFont まで）
           //  様式に元から入っている文（「□無 □有」など）より長いときだけ。同じ長さなら様式の書式のまま
           const b = baseStyle(key, c.cell);
-          const r = fitSize(e.value, geos.get(key)(c.cell), styles.fontSize(b), minFont);
+          const box = geos.get(key)(c.cell);
+          const r = fitSize(e.value, box, styles.fontSize(b), minFont);
           if (r.wrap) {
             e.style = styles.fit(b, r.size);
             e.fit = r.size;
           }
-          if (!r.fits) e.tooLong = true;
+          if (!r.fits) {
+            // 最小の大きさでも収まらなければ、枠のいちばん下の行の高さを広げる（確認用なので見た目より中身が読めることを優先）
+            //  様式が「1ページに合わせて印刷」なら、広げても1ページのまま（全体が少し小さくなる）
+            const h = box.lastRowHeight + heightNeeded(e.value, r.size, box.width) - box.height;
+            grow.set(box.lastRow, Math.max(grow.get(box.lastRow) ?? 0, h));
+            e.grownRow = box.lastRow;
+          }
         }
         return e;
       });
       if (spec.markCell && mark) edits.push({ addr: spec.markCell, value: mark }); // 画面でも見える確認用の印
       let xml;
+      let rows = new Map();
       try {
         xml = setCells(base.get(key), edits);
+        if (grow.size) {
+          const g = setRowHeights(xml, grow);
+          xml = g.xml;
+          rows = new Map(g.done.map((r) => [r, grow.get(r)]));
+          for (const e of edits) if (e.grownRow && !rows.has(e.grownRow)) e.tooLong = true; // 行が見つからず広げられなかった
+        }
       } catch (e) {
         errors.push(`${no}：${e.message}`);
         continue;
       }
       const name = sheetName(`${no || '番号なし'}${spec.suffix || ''}`, used);
-      out.push({ name, xml, edits, key, treeNo: no, form: spec.form });
+      out.push({ name, xml, edits, key, treeNo: no, form: spec.form, rows });
       for (const e of edits) if (e.tooLong) stats.tooLong.push({ sheet: name, cell: e.addr });
+      for (const e of edits) if (e.grownRow && !e.tooLong) stats.grown.push({ sheet: name, cell: e.addr, row: e.grownRow });
       stats.sheets.push({ name, treeNo: no, form: spec.form });
     }
   }
@@ -437,6 +453,16 @@ async function verifyKarte(buffer, sheets, base) {
       continue;
     }
     const want = base.get(s.key);
+    // 行の高さ：広げた行は決めた高さ、ほかの行は様式のまま
+    const rowTags = (x) => new Map([...x.matchAll(/<row\b[^>]*>/g)].map((m) => [Number(m[0].match(/\br="(\d+)"/)?.[1]), m[0]]));
+    const ht = (tag) => tag?.match(/\bht="([^"]*)"/)?.[1] ?? '';
+    const ra = rowTags(want);
+    const rb = rowTags(xml);
+    for (const [r, tag] of rb) {
+      if (s.rows?.has(r)) {
+        if (Number(ht(tag)) !== s.rows.get(r)) errors.push(`シート「${s.name}」の ${r}行目：行の高さが違います（期待：${s.rows.get(r)}pt）`);
+      } else if (ht(ra.get(r)) !== ht(tag)) errors.push(`シート「${s.name}」の ${r}行目：行の高さが様式と違います`);
+    }
     const head = (x) => x.slice(0, x.indexOf('<sheetData')).replace(/\s+tabSelected="1"/g, '');
     const tail = (x) => x.slice(x.indexOf('</sheetData>'));
     if (head(xml) !== head(want) || tail(xml) !== tail(want)) errors.push(`シート「${s.name}」：セル以外の部分（結合・入力規則・印刷の設定など）が様式と違います`);

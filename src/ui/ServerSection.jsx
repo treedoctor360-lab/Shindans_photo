@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { idbGet } from '../store/idb.js';
 import { bookCount } from '../store/initial.js';
-import { applyLedger, importInitialBook, loadConfigText, readLedgerFile, saveTemplate } from '../store/state.js';
+import { applyLedger, importInitialBook, loadConfigText, readKarteTemplateFile, readLedgerFile, saveTemplate } from '../store/state.js';
 import { callServer, getFile, putFile } from '../store/sync.js';
 import { getPreviousIndex, getPreviousPhotos, loadIndex, putPrevious } from '../store/previous.js';
 import { todayYmd } from './SettingsView.jsx';
@@ -44,9 +44,21 @@ export default function ServerSection({ state, update, config, setConfig, toast 
       if (ledger) await putFile(sv, 'ledger', ledger.name, ledger.buffer);
       const book = config.initialSurvey ? await idbGet('initialBook') : null;
       if (book) await putFile(sv, 'initialBook', book.name, book.buffer);
+      // 確認用カルテの様式（調査者の端末でも「カルテで見る」で使う）
+      //  サーバー（GAS）が古いと受け付けないので、そのときは知らせてほかは続ける
+      let kt = config.initialSurvey?.karte ? await idbGet('karteTemplate') : null;
+      let ktNote = '';
+      if (kt) {
+        try {
+          await putFile(sv, 'karteTemplate', kt.name, kt.buffer);
+        } catch (e) {
+          kt = null;
+          ktNote = `。カルテの様式は置けませんでした（${e.message}。サーバーの Code.js を新しくしてデプロイし直してください）`;
+        }
+      }
       // 前回の調査（要点と、場所ごとの写真）
       const nPrev = await putPrevious(sv, (d, n) => setBusy(`サーバーに置く ${d}/${n}`));
-      toast(`サーバーに置きました（設定${tpl ? '・原本' : ''}${ledger ? '・台帳' : ''}${book ? '・データ入力用ブック' : ''}${nPrev ? `・前回の調査${nPrev}本` : ''}）`);
+      toast(`サーバーに置きました（設定${tpl ? '・原本' : ''}${ledger ? '・台帳' : ''}${book ? '・データ入力用ブック' : ''}${kt ? '・カルテの様式' : ''}${nPrev ? `・前回の調査${nPrev}本` : ''}）${ktNote}`);
     });
 
   // サーバーから設定・原本・台帳を受け取る（スマホで）
@@ -87,6 +99,14 @@ export default function ServerSection({ state, update, config, setConfig, toast 
           got.push(`データ入力用ブック（入力済み${bookCount(r.state.initialBookInfo)}本）`);
         }
       }
+      if (cfg?.initialSurvey?.karte) {
+        const kt = await getFile(sv, 'karteTemplate').catch(() => null); // サーバーが古ければ受け取らない
+        if (kt) {
+          const info = await readKarteTemplateFile(kt.name, kt.buffer, cfg, todayYmd());
+          await update((s) => ({ ...s, karteTemplateInfo: info }), { now: true });
+          got.push(info.errors?.length ? 'カルテの様式（設定と違うため使えません）' : 'カルテの様式');
+        }
+      }
       const nPrev = await getPreviousIndex(sv);
       if (nPrev) got.push(`前回の調査（${nPrev}本）`);
       toast(got.length ? `受け取りました：${got.join('・')}` : 'サーバーにはまだ何も置かれていません');
@@ -112,6 +132,7 @@ export default function ServerSection({ state, update, config, setConfig, toast 
     config && `設定ファイル（${config.job?.title || ''} 版${config.version}）`,
     state.ledgerInfo && `台帳「${state.ledgerInfo.name}」（${state.ledgerInfo.date} に読み込み）`,
     config?.initialSurvey && state.initialBookInfo && `データ入力用ブック「${state.initialBookInfo.name}」（${state.initialBookInfo.date} に読み込み）`,
+    config?.initialSurvey?.karte && state.karteTemplateInfo && `カルテの様式「${state.karteTemplateInfo.name}」（${state.karteTemplateInfo.date} に読み込み）`,
     '野帳の原本・前回の調査（この端末に読み込んであれば）',
   ].filter(Boolean);
   return (
