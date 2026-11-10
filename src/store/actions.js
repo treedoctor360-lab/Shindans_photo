@@ -56,6 +56,9 @@ export function normalizeField(t, field, cfg) {
   if (field === 'treeNo') return { ...t, treeNo: toHalf(t.treeNo).toUpperCase().trim() };
   if (field === 'species') return { ...t, species: normalizeSpecies(t.species, cfg) };
   if (['height', 'branchLen', 'branchDia', 'deadBranchCount'].includes(field)) return { ...t, [field]: toHalf(t[field]).trim() };
+  // 設定で足した計測の欄：数の欄は半角に、文字の欄は前後の空白を取る
+  const extra = (cfg.extraFields || []).find((f) => f.key === field);
+  if (extra) return { ...t, [field]: extra.numeric ? toHalf(t[field] ?? '').trim() : String(t[field] ?? '').trim() };
   return t;
 }
 
@@ -104,10 +107,42 @@ export function saveTree(state, cfg, { force = false, now = new Date().toISOStri
   return { state: next, missing, saved: true };
 }
 
+// 次の番号（設定 numbering：まとまりごとに start から順に振る）
+//  数字だけの番号のうち一番大きいものの次。枝番（例 3-1）や文字の入った番号は数えない
+export function nextTreeNo(trees, cfg) {
+  const start = cfg.numbering?.start ?? 1;
+  const nums = trees.map((t) => toHalf(t.treeNo).trim()).filter((v) => /^\d+$/.test(v)).map(Number);
+  return String(nums.length ? Math.max(...nums) + 1 : start);
+}
+
+// まとまり（公園・路線）を足す（設定 addGroups。台帳がなくても現地で作れる）
+//  values … 設定の fields の項目ごとの値（例 { routeName, routeNo }）。まとまりの名前の項目は必須
+//  その中の1本目の木を作って開く（まとまりは木から作られるので、木がないまとまりは作れない）
+// 返す形：{ state, error（足せなかった理由。足せたら ''）, exists（同じ名前のまとまりがあり、そちらを開いた） }
+export function addGroup(state, cfg, values, now = Date.now()) {
+  const ag = cfg.addGroups;
+  const sheet = ag && cfg.dbFormat.sheets.find((x) => x.type === ag.siteType);
+  if (!sheet) return { state, error: 'この設定では足せません', exists: false };
+  const info = { siteType: ag.siteType };
+  for (const f of ag.fields) {
+    const v = toHalf(values?.[f.key] ?? '').trim();
+    if (!v && (f.required || f.key === sheet.identify)) return { state, error: `${f.label}を入れてください`, exists: false };
+    info[f.key] = v;
+  }
+  const key = groupKey(info, cfg);
+  if (state.trees.some((t) => groupKey(t, cfg) === key)) return { state: { ...state, group: key, area: '', view: 'list' }, error: '', exists: true };
+  const uid = `${state.server?.deviceId || 'dev'}-${Number(now).toString(36)}`;
+  const nt = blankTree({ id: `new:${now}`, uid, status: cfg.newTreeStatus ?? '', ...info });
+  if (cfg.numbering) nt.treeNo = nextTreeNo([], cfg);
+  return { state: { ...state, trees: [...state.trees, nt], group: key, area: '', currentId: nt.id, view: 'form' }, error: '', exists: false };
+}
+
 // 台帳にない木を追加する（場所の情報は同じまとまりの最初の木から写す）
 //  uid … 追加した木の印（端末の印＋時刻）。番号の代わりにこれで木を見分ける（review.js の treeKey）
 //  afterId … この木の次に入れる（木の after にその木の鍵を覚え、一覧表を読み込み直しても位置を保つ。order.js）。
 //            なければ、まとまりの最後に入れる
+//  設定 numbering があれば、まとまりの最後に足す木には次の番号を入れ、前の木から写す項目（carry。例 樹種）を写す。
+//  途中に差し込む木（afterId がまとまりの最後の木でない）は、番号を空欄にして自分で入れてもらう（後ろの番号は振り直さない）
 export function addTree(state, cfg, { area = '', now = Date.now(), afterId = '' } = {}) {
   const ts = currentGroupTrees(state, cfg);
   const anchor = afterId ? state.trees.find((x) => x.id === afterId) : null;
@@ -116,6 +151,12 @@ export function addTree(state, cfg, { area = '', now = Date.now(), afterId = '' 
   const uid = `${state.server?.deviceId || 'dev'}-${Number(now).toString(36)}`;
   const nt = blankTree({ id: `new:${now}`, uid, status: cfg.newTreeStatus ?? '', area });
   for (const k of copyKeys) if (ref[k] !== undefined) nt[k] = ref[k];
+  if (cfg.numbering) {
+    const live = ts.filter((x) => !x.deleted);
+    const prev = anchor || live.at(-1);
+    if (!anchor || anchor === live.at(-1)) nt.treeNo = nextTreeNo(live, cfg);
+    for (const k of cfg.numbering.carry || []) if (prev?.[k]) nt[k] = prev[k];
+  }
   let trees;
   if (anchor) {
     nt.after = simpleKey(anchor, cfg);
