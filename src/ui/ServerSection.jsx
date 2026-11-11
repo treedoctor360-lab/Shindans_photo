@@ -1,6 +1,7 @@
 // 設定画面の「サーバー」欄：URL と合言葉、接続の確認、設定・原本・台帳の受け渡し
 import { useState } from 'react';
 import { idbGet } from '../store/idb.js';
+import { rememberTitle } from '../store/workspace.js';
 import { bookCount } from '../store/initial.js';
 import { applyLedger, importInitialBook, loadConfigText, readKarteTemplateFile, readLedgerFile, saveTemplate } from '../store/state.js';
 import { callServer, getFile, putFile } from '../store/sync.js';
@@ -71,6 +72,7 @@ export default function ServerSection({ state, update, config, setConfig, toast 
         const r = await loadConfigText(new TextDecoder().decode(c.buffer), config);
         if (r.errors.length) throw new Error(`サーバーの設定ファイルに誤りがあります：${r.errors[0]}`);
         cfg = r.config;
+        await rememberTitle(cfg.job?.title); // 業務の一覧に出す名前
         setConfig(cfg);
         got.push('設定');
       }

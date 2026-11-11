@@ -32,12 +32,27 @@ async function run(mode, fn) {
   });
 }
 
-export const idbGet = (key) => run('readonly', (s) => s.get(key));
-export const idbPut = (key, value) => run('readwrite', (s) => s.put(value, key));
-export const idbDelete = (key) => run('readwrite', (s) => s.delete(key));
+// 業務ごとの置き場所（src/store/workspace.js）
+//  同じデータベースの中で、鍵の頭に業務の印を付けて分ける。最初の業務（印が空）は今までどおりの鍵のまま
+//  （前から入っている入力内容は、そのまま最初の業務として読める）。
+//  印は起動したときに1回だけ決める（途中で変えると、保存の待ち時間に古い業務の内容が新しい業務に書かれるため）
+let wsId = '';
+export const wsKey = (id, key) => (id ? `ws:${id}:${key}` : key);
+export function setWorkspaceId(id) {
+  wsId = id || '';
+}
+
+export const idbGet = (key) => run('readonly', (s) => s.get(wsKey(wsId, key)));
+export const idbPut = (key, value) => run('readwrite', (s) => s.put(value, wsKey(wsId, key)));
+export const idbDelete = (key) => run('readwrite', (s) => s.delete(wsKey(wsId, key)));
+
+// 業務を選ばずに読み書きする（業務の一覧そのもの・別の業務へ書くとき）
+export const idbGetRaw = (key) => run('readonly', (s) => s.get(key));
+export const idbPutRaw = (key, value) => run('readwrite', (s) => s.put(value, key));
 
 // テスト用：開いているデータベースを閉じて、次は開き直す
 export async function idbReset() {
   if (dbPromise) (await dbPromise).close();
   dbPromise = null;
+  wsId = '';
 }
