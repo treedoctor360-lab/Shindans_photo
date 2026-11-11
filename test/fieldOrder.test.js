@@ -1,0 +1,71 @@
+// 野帳の並びに合わせる設定（点検項目の place・always、initial.afterCheck）と、出力の見出し
+import { describe, expect, it } from 'vitest';
+import cfgJson from './fixtures/sample-config.json';
+import { validateConfig } from '../src/core/config.js';
+import { blankTree, isCheckKey } from '../src/core/tree.js';
+import { missingFields } from '../src/core/rules.js';
+import { columns } from '../src/excel/listColumns.js';
+import { dbValues } from '../src/excel/dbExport.js';
+
+const base = structuredClone(cfgJson);
+const [first, second, ...rest] = base.checks.map((c) => c.key);
+const cfg = {
+  ...structuredClone(cfgJson),
+  checks: base.checks.map((c, i) => (i === 0 ? { ...c, place: 'measure' } : i === base.checks.length - 1 ? { ...c, always: true } : c)),
+  initial: { ...base.initial, afterCheck: second },
+  extraFields: [{ key: 'spread', label: '枝張り', unit: 'm', numeric: true }],
+};
+const lastKey = base.checks.at(-1).key;
+
+describe('野帳の並びに合わせる設定', () => {
+  it('設定の検証：今の設定はそのまま通り、誤った指定は断る', () => {
+    expect(validateConfig(cfg).errors).toEqual([]);
+    const withCheck = (o) => validateConfig({ ...cfg, checks: cfg.checks.map((c, i) => (i === 1 ? { ...c, ...o } : c)) }).ok;
+    expect(withCheck({ place: 'top' })).toBe(false);
+    expect(withCheck({ always: 'yes' })).toBe(false);
+    expect(validateConfig({ ...cfg, initial: { ...cfg.initial, afterCheck: 'nowhere' } }).ok).toBe(false);
+    expect(validateConfig({ ...cfg, initial: { ...cfg.initial, afterCheck: first } }).ok).toBe(false); // 計測の区切りに出す項目の次には置けない
+  });
+
+  it('always の点検項目は、枯死の木でも空欄にせず、未入力なら知らせる', () => {
+    expect(isCheckKey(first, cfg)).toBe(true);
+    expect(isCheckKey(lastKey, cfg)).toBe(false);
+    const dead = blankTree({ treeNo: 'X1', species: 'テストノキ', height: '5', girths: ['0.5'], vigor: cfg.deadVigor, initialNeeded: cfg.initial.no, grade: 'E' });
+    const miss = missingFields(dead, cfg);
+    expect(miss).toContain(cfg.checks.at(-1).label);
+    expect(miss).not.toContain(cfg.checks[1].label);
+    // 一覧表に書く値：always の項目は枯死でも書き、ほかの点検項目は空欄
+    const v = cfg.options[lastKey][0];
+    const other = rest[0];
+    const fmt = { ...cfg.dbFormat, columns: { ...cfg.dbFormat.columns, [lastKey]: '^A$', [other]: '^B$' }, writeKeys: [lastKey, other] };
+    const vals = dbValues({ ...dead, [lastKey]: v, [other]: cfg.options[other][0] }, { ...cfg, dbFormat: fmt });
+    expect(vals[lastKey]).toBe(v);
+    expect(vals[other]).toBe(null);
+  });
+});
+
+describe('出力の見出し（一覧表形式・入力内容の一覧）', () => {
+  const fmt = {
+    ...cfg.dbFormat,
+    columns: { ...cfg.dbFormat.columns, spread: '^W$', branchLen: '^枝長$', branchDia: '^枝径$', [cfg.details[0].field]: '^詳細$' },
+  };
+  fmt.writeKeys = [...fmt.writeKeys, 'spread', 'branchLen', 'branchDia', cfg.details[0].field];
+  const c2 = { ...cfg, dbFormat: fmt };
+  const site = c2.dbFormat.sheets[0].type;
+
+  it('計測に足した欄・「有」のとき入れる項目・枝長・枝径も日本語の見出しになる（英字の名前を出さない）', () => {
+    const cols = columns(c2, site, null, [blankTree({ treeNo: '1', ledgerRow: 5 })]);
+    const head = Object.fromEntries(cols);
+    expect(head.spread).toBe('枝張り(m)');
+    expect(head.branchLen).toBe('枝長(cm)');
+    expect(head.branchDia).toBe('枝径(cm)');
+    expect(head[cfg.details[0].field]).toBe(cfg.details[0].label);
+    for (const [k, l] of cols) expect(l, k).not.toMatch(/^[A-Za-z]+$/);
+  });
+
+  it('台帳の行の木が1本もなければ、通し番号の列を出さない', () => {
+    const serial = c2.dbFormat.serialKey;
+    expect(columns(c2, site, null, [blankTree({ treeNo: '1', ledgerRow: 5 })]).map(([k]) => k)).toContain(serial);
+    expect(columns(c2, site, null, [blankTree({ treeNo: '1', uid: 'u1' })]).map(([k]) => k)).not.toContain(serial);
+  });
+});

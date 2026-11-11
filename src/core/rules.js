@@ -19,7 +19,8 @@ export function missingFields(tree, cfg) {
   if (!num(tree.height)) m.push('樹高');
   if (!girthOf(tree, cfg)) m.push('幹周');
   if (!tree.vigor) m.push(cfg.vigorLabel);
-  if (!isLocked(tree, cfg)) cfg.checks.forEach((c) => !tree[c.key] && m.push(c.label));
+  const locked = isLocked(tree, cfg);
+  cfg.checks.forEach((c) => (!locked || c.always) && !tree[c.key] && m.push(c.label)); // 枯死の木は always の項目だけ聞く
   cfg.details.forEach((d) => {
     if (d.required && matches(tree, d.when, cfg) && !String(tree[d.field] ?? '').trim()) m.push(d.label);
   });
