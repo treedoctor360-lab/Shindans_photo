@@ -78,6 +78,12 @@ input.num{font-family:var(--num)}
 .seg.grade .seg-b.on[data-v="E"]{background:var(--gE);border-color:var(--gE)}
 .check{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:8px;align-items:center;padding-block:4px;border-bottom:1px dashed var(--line)}
 .check:last-child{border-bottom:0}
+/* 点検項目の並び（1項目ずつの fieldset）：区切りの間隔（gap）を使わず、行の間を詰める */
+.check-list{display:flex;flex-direction:column;gap:0}
+.check-list > fieldset{gap:4px}
+.check-list > fieldset:not(:last-child){border-bottom:1px dashed var(--line);padding-bottom:2px;margin-bottom:2px}
+.check-list .check{padding-block:0;border-bottom:0}
+.check-list .seg-b{min-height:42px;padding-block:4px}
 .check .lbl{font-weight:400}
 fieldset{border:0;margin:0;padding:0;min-width:0;display:flex;flex-direction:column;gap:6px}
 fieldset:disabled{opacity:.45}

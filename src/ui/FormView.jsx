@@ -598,7 +598,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
             </div>
           )}
           {/* 計測の区切りに出す点検項目（checks の place: "measure"。例 傾斜） */}
-          {measureChecks.map(checkRow)}
+          {measureChecks.length > 0 && <div className="check-list">{measureChecks.map(checkRow)}</div>}
           <div className="grid2">
             <div className="row">
               <label className="lbl" htmlFor="f-bl">
@@ -661,13 +661,16 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               まだ選んでいない点検項目をすべて「{cfg.noneValue || '無'}」にする
             </button>
           </fieldset>
-          {mainChecks.map((c) => (
-            <Fragment key={c.key}>
-              {checkRow(c)}
-              {/* 詳しい診断の要否を点検項目の並びの中に出す（initial.afterCheck。野帳の並び） */}
-              {cfg.initial.afterCheck === c.key && initialRow}
-            </Fragment>
-          ))}
+          {/* 点検項目は1項目ずつ fieldset（枯死の木で項目ごとに入力を止めるため）。間隔は check-list で詰める */}
+          <div className="check-list">
+            {mainChecks.map((c) => (
+              <Fragment key={c.key}>
+                {checkRow(c)}
+                {/* 詳しい診断の要否を点検項目の並びの中に出す（initial.afterCheck。野帳の並び） */}
+                {cfg.initial.afterCheck === c.key && initialRow}
+              </Fragment>
+            ))}
+          </div>
           {/* 特記事項は枯死の木でも書ける（点検項目だけを原則空欄にする） */}
           <div className="row" style={{ paddingTop: 8 }}>
             <label className="lbl" htmlFor="f-notes">

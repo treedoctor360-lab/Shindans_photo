@@ -37,6 +37,8 @@ export default function NoteMeasures({ cfg, tree, onChange, readOnly = false, ki
   const rows = list.map((m, i) => ({ m, i })).filter(({ m }) => shown(m.kind)); // i は木の一覧での番号（直す・消すに使う）
   if (!myKinds.length && !rows.length) return null;
   const inCheck = !!kinds; // 点検項目の下に出している
+  // 点検項目の下で、入れた行もなく入れるボタンも出さないとき（項目が「有」でない）は何も出さない（行の間が空かないように）
+  if (inCheck && !rows.length && !edit && (readOnly || !canAdd)) return null;
 
   const open = (i) => {
     const m = list[i];
