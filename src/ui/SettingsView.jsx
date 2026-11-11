@@ -5,6 +5,7 @@ import { idbPut } from '../store/idb.js';
 import { needsNewWorkspace, rememberTitle, putConfigInWorkspace } from '../store/workspace.js';
 import WorkspaceSection from './WorkspaceSection.jsx';
 import { applyLedger, loadConfigText, importInitialBook, readKarteTemplateFile, readLedgerFile, saveTemplate } from '../store/state.js';
+import { karteConfs } from '../excel/karteExport.js';
 import PrevSection from './PrevSection.jsx';
 import { diagnosticDump } from '../store/diagnose.js';
 import { APP_VERSION, BUILD_TIME } from '../version.js';
@@ -134,7 +135,7 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
   };
   const book = state.initialBookInfo;
 
-  // 確認用カルテの様式（設定に initialSurvey.karte があるときだけ）
+  // カルテの様式（設定に karte か initialSurvey.karte があるときだけ）
   const onKarteTemplate = async (file) => {
     setBusy(true);
     try {
@@ -282,9 +283,9 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
         </div>
       )}
 
-      {config?.initialSurvey?.karte && (
+      {karteConfs(config).length > 0 && (
         <div className="sec">
-          <h2>カルテの様式（確認用カルテ）</h2>
+          <h2>カルテの様式{config.initialSurvey?.karte ? '（確認用カルテ）' : ''}</h2>
           <div className="hint" data-testid="karte-template-status">
             {kt ? (
               <>
@@ -296,7 +297,7 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
           </div>
           {kt?.errors?.length > 0 && (
             <div className="alert warn" data-testid="karte-template-errors">
-              <span>様式が設定と違うため、確認用カルテを作れません。様式のシートが変わっていないか確かめてください。</span>
+              <span>様式が設定と違うため、カルテを作れません。様式のシートが変わっていないか確かめてください。</span>
               {kt.errors.map((e) => (
                 <span key={e}>・{e}</span>
               ))}
@@ -309,7 +310,11 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
             disabled={busy}
             testId="karte-template-file"
           />
-          <p className="hint">カルテを作るマクロの入ったブックなど、空のカルテの様式があるブックを選びます。「サーバーに置く」で調査者の端末にも渡し、詳しい診断の画面の「カルテで見る」で使えます（マクロは動かしません）。確認用カルテは「出力」から作ります。</p>
+          <p className="hint">
+            {config.initialSurvey?.karte
+              ? 'カルテを作るマクロの入ったブックなど、空のカルテの様式があるブックを選びます。「サーバーに置く」で調査者の端末にも渡し、詳しい診断の画面の「カルテで見る」で使えます（マクロは動かしません）。確認用カルテは「出力」から作ります。'
+              : '空のカルテの様式があるブックを選びます。カルテは「出力」から作ります（1本1シート）。「サーバーに置く」で調査者の端末にも渡せます。'}
+          </p>
         </div>
       )}
 
