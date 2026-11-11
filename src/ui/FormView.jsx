@@ -5,6 +5,9 @@ import { groupLabel, treesOfGroup } from '../core/groups.js';
 import { dbNoteOf, freeNoteLines, isChipLine, noteLines, toggleChip } from '../core/notes.js';
 import { freeNotesOf, toMeasuresV2 } from '../core/noteMeasures.js';
 import NoteMeasures from './NoteMeasures.jsx';
+import LocationBox from './LocationBox.jsx';
+import { autoLocOn, setAutoLocOn, useGeoFix } from './useGeoFix.js';
+import { goodFix, hasLoc, withLoc } from '../core/location.js';
 import SessionStamp from './SessionStamp.jsx';
 import { photoFlag, photoPlan } from '../core/photo.js';
 import { alertsOf, missingFields } from '../core/rules.js';
@@ -136,6 +139,9 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
   const [renum, setRenum] = useState(null); // 「現地の番号に変える」の入力中：{ no, drop: [特記から消す行] }
   const [askGirth, setAskGirth] = useState(''); // 値の入った幹周を減らすか確かめ中の木の id
   const [askAfter, setAskAfter] = useState('next'); // 未入力を確かめ中の保存の行き先
+  // 位置（設定 location）：この端末で保存のときに現在地を入れるなら、画面を開いている間 GPS を見続ける
+  const [autoOn, setAutoOnState] = useState(autoLocOn);
+  const geo = useGeoFix(!!cfg?.location && cfg.location.auto !== false && autoOn);
 
   if (!cfg || !state.trees.length) {
     return (
@@ -215,7 +221,11 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
     // 詳しい診断が必要な木なら、次の木の画面で「続けて入力」を聞く（同じ木のままなら、画面の「詳しい診断を入力」から開ける）
     const prompt = after !== 'stay' && cfg.initialSurvey?.forms && isInitialTarget(r.state.trees.find((x) => x.id === t.id) || t, cfg) ? t.id : '';
     // 保存は「その時点の最新の状態」に対して行う（画面を描いた後に送受信で届いた変更を、古い状態で上書きしないように）
-    update((cur) => ({ ...syncInitialOfTree(saveTree({ ...cur, currentId: t.id, group }, cfg, { force: true, after }).state, t.id, cfg), initialPrompt: prompt }), { now: true }).then(() => send?.()); // 端末に保存してから、裏でサーバーへ送る
+    // 位置：初めて保存する木（後日直すときは入れない。事務所で直して事務所の位置が入らないように）でまだ位置がなく、
+    //  この端末が「保存のときに現在地を入れる」なら、精度の良い GPS の位置を入れてから保存する
+    const fix = cfg.location && cfg.location.auto !== false && autoOn && !readOnly && !t.done && goodFix(geo.ref.current, cfg) ? geo.ref.current : null;
+    const withFix = (cur) => (fix ? updateTree(cur, t.id, (x) => (hasLoc(x) ? x : withLoc(x, fix, 'gps'))) : cur);
+    update((cur) => ({ ...syncInitialOfTree(saveTree({ ...withFix(cur), currentId: t.id, group }, cfg, { force: true, after }).state, t.id, cfg), initialPrompt: prompt }), { now: true }).then(() => send?.()); // 端末に保存してから、裏でサーバーへ送る
     toast(`${toHalf(t.treeNo) || 'この木'} を保存しました`);
     if (after !== 'stay') window.scrollTo(0, 0); // 同じ木のままなら、見ていた所から続けて直せるよう動かさない
   };
@@ -777,6 +787,25 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
         )}
 
         <Alerts list={otherAlerts} onAct={onAct} asking={asking} onAsk={(a, act) => setAsking({ alertId: a.id, act })} onCancel={() => setAsking(null)} />
+
+        {cfg.location && (
+          <div className="sec">
+            <LocationBox
+              cfg={cfg}
+              tree={t}
+              geo={geo}
+              change={change}
+              readOnly={readOnly}
+              others={groupTrees.filter((x) => x.id !== t.id && !x.deleted && hasLoc(x)).map((x) => ({ lat: Number(x.lat), lng: Number(x.lng), label: toHalf(x.treeNo) || '?' }))}
+              autoOn={autoOn}
+              setAutoOn={(on) => {
+                setAutoLocOn(on);
+                setAutoOnState(on);
+              }}
+              toast={toast}
+            />
+          </div>
+        )}
 
         <div className="sec">
           <h2>写真（デジカメで撮影）</h2>

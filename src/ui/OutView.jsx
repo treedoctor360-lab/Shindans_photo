@@ -1,5 +1,5 @@
 // 出力画面：野帳・一覧表の Excel 出力（照合つき）と、一覧表形式での確認
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { groupKey, groupKeys as allGroupKeys, groupLabel, treesOfGroup } from '../core/groups.js';
 import { numberRanges, toHalf } from '../core/text.js';
 import { dbValues, exportDb } from '../excel/dbExport.js';
@@ -10,6 +10,8 @@ import { exportListSheet, listPages } from '../excel/listSheet.js';
 import { exportInitialBook } from '../excel/initialExport.js';
 import { exportKarte } from '../excel/karteExport.js';
 import { simpleKarteRecord } from '../core/simpleKarte.js';
+import { hasLoc } from '../core/location.js';
+
 import { gradeWriteBack, initialsForBook, karteRecords } from '../store/initial.js';
 import { loadInitialBookFile, loadKarteTemplateFile, loadLedgerFile, loadTemplate } from '../store/state.js';
 import { unsentCount, unsentList } from '../store/sync.js';
@@ -19,6 +21,20 @@ import { fieldSheetMarks, loadIndex } from '../store/previous.js';
 import { karteSpecs } from '../excel/karte.js';
 import { activeGroup } from './ListView.jsx';
 import { todayYmd } from './SettingsView.jsx';
+
+// 読み込めなかったとき（電波がない所で初めて開いたなど）は、画面を止めずに知らせる
+const RouteMap = lazy(() =>
+  import('./RouteMap.jsx').catch(() => ({
+    default: ({ onClose }) => (
+      <div className="alert warn" role="alert">
+        <span>地図を読み込めませんでした。電波のある所で開き直してください。</span>
+        <button type="button" className="btn" onClick={onClose}>
+          閉じる
+        </button>
+      </div>
+    ),
+  })),
+); // 地図の部品は開いたときだけ読み込む
 
 // ファイルを端末に保存（ダウンロード）する
 function download(filename, bytes) {
@@ -49,6 +65,7 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
   const [karteAll, setKarteAll] = useState(false); // 確認用カルテを、すべての公園・路線をまとめて出すか（既定は選んでいる公園・路線だけ）
   const [karteLong, setKarteLong] = useState([]); // 確認用カルテで、文字を小さくしても枠に収まらなかった欄
   const [simpleLong, setSimpleLong] = useState([]); // 簡易診断のカルテで、文字を小さくしても枠に収まらなかった欄
+  const [routeMap, setRouteMap] = useState(false); // 位置図を開いているか
   const [withUnconfirmed, setWithUnconfirmed] = useState(false); // 未確定の木も一覧表に書き込むか（途中経過の確認用）
   const [handKeys, setHandKeys] = useState(null); // 内勤さんに渡す Excel に出す公園・路線（null：今見ている公園・路線だけ）
   if (!cfg || !state.trees.length) {
@@ -414,6 +431,21 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
               ? `読み込んだ「${state.initialBookInfo.name}」の、入力済みの最後の行より下の空き行に書き込みます。ブックで入力済みの木は書き込みません。書き込むセルのほかは変えません（列の並び・入力規則・書式もそのまま）。保存する前に、書き出したファイルを読み直して全件照合します。元のファイルは変わりません。`
               : '先に「設定」でデータ入力用ブックを読み込んでください。'}
           </p>
+        </div>
+      )}
+
+      {cfg.location && (
+        <div className="sec" data-testid="route-map-sec">
+          <h2>位置図（社内用）</h2>
+          <button type="button" className="btn big" disabled={!groupTrees.some(hasLoc)} onClick={() => setRouteMap(true)} data-testid="open-route-map">
+            位置図を開く：{gname}（位置のある木 {groupTrees.filter(hasLoc).length}本／{groupTrees.length}本）
+          </button>
+          <p className="hint">今の路線・公園の木を、樹木番号の印で地図に出します。「印刷（A3 横）」で印刷・PDF に保存できます。</p>
+          {routeMap && (
+            <Suspense fallback={<p className="hint">地図を読み込み中…</p>}>
+              <RouteMap cfg={cfg} title={gname.replace(/^\[.*?\]\s*/, '')} trees={groupTrees} onClose={() => setRouteMap(false)} />
+            </Suspense>
+          )}
         </div>
       )}
 
