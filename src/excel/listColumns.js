@@ -16,6 +16,8 @@ export function columns(cfg, siteType, ledgerColumns, trees) {
   };
   label.branchLen = '枝長(cm)';
   label.branchDia = '枝径(cm)';
+  label.lat = '緯度';
+  label.lng = '経度';
   cfg.checks.forEach((c) => (label[c.key] = c.label));
   (cfg.extraFields || []).forEach((x) => (label[x.key] = x.unit ? `${x.label}(${x.unit})` : x.label)); // 計測に足した欄
   cfg.details.forEach((d) => (label[d.field] = d.label)); // 「有」のとき追加で入れる項目

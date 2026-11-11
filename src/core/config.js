@@ -8,6 +8,7 @@ import { RULE_TYPES } from './rules.js';
 import { validateDetailParts } from './detailParts.js';
 import { validateKarte } from './karteCells.js';
 import { simpleKarteKeys } from './simpleKarte.js';
+import { LOC_KEYS, validateLocation } from './location.js';
 import { validateFromMeasures, validateNoteMeasures } from './noteMeasures.js';
 import { validateWording } from './wording.js';
 
@@ -163,6 +164,7 @@ export function validateConfig(cfg) {
     need(isArr(cfg.checks) && cfg.checks.some((c) => c?.key === cfg.initial.afterCheck && c.place !== 'measure'), 'initial.afterCheck は、計測の区切りに出さない点検項目のキーにしてください');
   if (cfg.numbering != null) validateNumbering(cfg.numbering, need); // 追加した木に番号を順に振る（省略可）
   if (cfg.listSheet != null) validateListSheet(cfg.listSheet, cfg, need); // 一覧型の野帳（省略可）
+  if (cfg.location != null) validateLocation(cfg.location, need); // 木の位置（GPS・地図。省略可）
   // 簡易診断のカルテ（1本1シート。提出用。省略可）。形は initialSurvey.karte と同じで、form は simple
   if (cfg.karte != null) {
     const siteTypes = isObj(cfg.dbFormat) && isArr(cfg.dbFormat.sheets) ? cfg.dbFormat.sheets.map((x) => x?.type) : [];
@@ -188,6 +190,7 @@ function validateExtraFields(list, cfg, need) {
   const taken = new Set([
     ...Object.keys(blankTree()),
     ...['siteType', 'area', 'uid', 'after', 'deleted', 'sent', 'updatedAt', 'rev', 'measures', 'measuresV', 'ledgerRow', 'ledgerGone', 'rowDup'],
+    ...LOC_KEYS, // 木の位置（location）
     ...(isArr(cfg.checks) ? cfg.checks.map((c) => c?.key) : []),
     ...(isArr(cfg.details) ? cfg.details.map((d) => d?.field) : []),
     ...(isArr(cfg.dbFormat?.infoKeys) ? cfg.dbFormat.infoKeys : []), // 台帳から写す場所の情報

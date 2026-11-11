@@ -29,6 +29,7 @@ export function simpleKarteKeys(cfg) {
   for (const f of cfg.extraFields || []) keys.add(f.key);
   for (const k of cfg.dbFormat?.infoKeys || []) keys.add(k);
   for (const k of SIMPLE_KARTE_CALC) keys.add(k);
+  for (const k of ['lat', 'lng']) keys.add(k); // 木の位置（location）
   return keys;
 }
 

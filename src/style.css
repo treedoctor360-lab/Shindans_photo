@@ -428,3 +428,28 @@ fieldset.form-body:disabled button:not(.seg-b):not(.chip){opacity:.3}
 .app.desk.compact .tree-bar .btn{min-height:34px;padding:2px 8px}
 /* 出力：内勤さんに渡す Excel の公園・路線の選択 */
 .handoff-groups{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+
+/* 位置（地図）：入力画面の位置の欄・地図で直す画面・路線の位置図 */
+.loc .acts{margin-top:6px}
+.loc-auto{display:block;margin-top:6px}
+.loc-auto input{margin-right:6px}
+.map-modal{position:fixed;inset:0;z-index:60;background:var(--bg);display:flex;flex-direction:column}
+.map-head,.map-foot{padding:8px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.map-foot{justify-content:flex-end;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+.map-foot .hint{margin-right:auto}
+.map-box{flex:1;min-height:0}
+.map-no{transform:translate(-50%,-50%);min-width:22px;height:22px;padding:0 4px;border-radius:11px;background:#fff;border:2px solid #b3261e;color:#b3261e;font:700 12px/18px sans-serif;text-align:center;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.map-no.cur{background:#b3261e;color:#fff}
+.map-no.big{min-width:30px;height:30px;line-height:26px;border-radius:15px;font-size:14px}
+.route-map{position:fixed;inset:0;z-index:60;background:#fff;color:#000;display:flex;flex-direction:column;overflow:auto}
+.route-map-head{padding:8px 12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.route-map-head .acts{margin-left:auto}
+.route-map-box{flex:1;min-height:300px}
+.route-map.printing .route-map-box{flex:none}
+.route-map-foot{padding:4px 12px}
+@page routemap{size:A3 landscape;margin:8mm}
+@media print{
+  body.printing-map > *:not(.route-map){display:none !important}
+  body.printing-map .route-map{position:static;overflow:visible;page:routemap}
+  body.printing-map .no-print{display:none !important}
+}
