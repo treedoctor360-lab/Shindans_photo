@@ -153,6 +153,13 @@ export function validateConfig(cfg) {
     need(isArr(cfg.checks) && cfg.checks.some((c) => c?.key === cfg.initial.afterCheck && c.place !== 'measure'), 'initial.afterCheck は、計測の区切りに出さない点検項目のキーにしてください');
   if (cfg.numbering != null) validateNumbering(cfg.numbering, need); // 追加した木に番号を順に振る（省略可）
   if (cfg.listSheet != null) validateListSheet(cfg.listSheet, cfg, need); // 一覧型の野帳（省略可）
+  // まとまりを名前のほかの項目でも分ける（省略可。例 路線番号・区域）
+  if (isArr(cfg.dbFormat?.sheets))
+    cfg.dbFormat.sheets.forEach((sh) => {
+      if (sh?.identifyAlso == null) return;
+      const keys = isArr(cfg.dbFormat.infoKeys) ? cfg.dbFormat.infoKeys : [];
+      need(isArr(sh.identifyAlso) && sh.identifyAlso.every((k) => keys.includes(k) && k !== sh.identify), `dbFormat.sheets の ${sh.type} の identifyAlso は、名前の項目以外の dbFormat.infoKeys の項目の一覧にしてください`);
+    });
   if (cfg.addGroups != null) validateAddGroups(cfg.addGroups, cfg, need); // まとまり（公園・路線）を現地で足す（省略可）
 
   return { ok: e.length === 0, errors: e };

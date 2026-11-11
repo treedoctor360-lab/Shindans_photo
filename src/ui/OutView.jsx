@@ -148,7 +148,7 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
   // 内勤さんに渡す Excel（ファイル名に公園・路線の名前。2つ以上なら「ほかN」）
   const handNames = () => {
     const ks = handKeys || [group];
-    const first = safeName(String(ks[0]).split(':').slice(1).join(':')); // まとまりの鍵「種類:名前」の名前
+    const first = safeName(String(ks[0]).split(':').slice(1).join(':').split('#')[0]); // まとまりの鍵「種類:名前」の名前
     return ks.length > 1 ? `${first}ほか${ks.length - 1}` : first;
   };
   const onEntryList = () =>

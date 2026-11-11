@@ -240,3 +240,42 @@ describe('健全度を現場で付けない業務（設定 noGrade）', () => {
     expect(validateConfig({ ...cfg4, noGrade: false }).ok).toBe(false);
   });
 });
+
+describe('まとまりを名前のほかの項目でも分ける（dbFormat.sheets の identifyAlso）', () => {
+  const cfg5 = structuredClone(cfgJson);
+  cfg5.dbFormat.sheets = cfg5.dbFormat.sheets.map((x) => (x.type === 'street' ? { ...x, identifyAlso: ['routeNo', 'region'] } : x));
+  if (!cfg5.dbFormat.infoKeys.includes('region')) cfg5.dbFormat.infoKeys.push('region');
+  cfg5.dbFormat.columns.region = cfg5.dbFormat.columns.region || '^区域$';
+  cfg5.numbering = { start: 1 };
+  cfg5.addGroups = { siteType: 'street', label: '路線', fields: [{ key: 'routeName', label: '路線名' }, { key: 'routeNo', label: '路線番号' }, { key: 'region', label: '区域' }] };
+  const empty = () => ({ ...initialState(), session: { date: '2099-05-06', inspector: '試験 二郎' } });
+
+  it('同じ路線名でも、路線番号が違えば別の路線として足せる。同じ番号でも区域が違えば別', () => {
+    expect(validateConfig(cfg5).errors).toEqual([]);
+    let s = addGroup(empty(), cfg5, { routeName: '架空', routeNo: '223' }, 1).state;
+    const r2 = addGroup(s, cfg5, { routeName: '架空', routeNo: '318' }, 2);
+    expect([r2.error, r2.exists]).toEqual(['', false]);
+    s = r2.state;
+    const r3 = addGroup(s, cfg5, { routeName: '架空', routeNo: '223', region: '別の区域' }, 3);
+    expect(r3.exists).toBe(false);
+    s = r3.state;
+    expect(groupKeys(s.trees, cfg5)).toHaveLength(3);
+    expect(s.trees.map((t) => t.treeNo)).toEqual(['1', '1', '1']); // どれも 1 から
+    // 全く同じ（名前・番号・区域）なら足さずに開く
+    expect(addGroup(s, cfg5, { routeName: '架空', routeNo: '318' }, 4).exists).toBe(true);
+    // 表示名に番号と区域が出る
+    const k = groupKey(s.trees[2], cfg5);
+    expect(groupLabel(s.trees, k, cfg5)).toBe(`[${cfg5.dbFormat.sheets.find((x) => x.type === 'street').label}] 223 架空 別の区域`);
+  });
+
+  it('identifyAlso のない設定では今までどおり（名前だけで分ける）', () => {
+    const s = addGroup(empty(), { ...cfgJson, numbering: { start: 1 }, addGroups: cfg5.addGroups }, { routeName: '架空', routeNo: '223' }, 1).state;
+    expect(addGroup(s, { ...cfgJson, addGroups: cfg5.addGroups }, { routeName: '架空', routeNo: '318' }, 2).exists).toBe(true);
+  });
+
+  it('設定の検証：名前の項目や場所の情報にない項目は断る', () => {
+    const bad = (also) => validateConfig({ ...cfg5, dbFormat: { ...cfg5.dbFormat, sheets: cfg5.dbFormat.sheets.map((x) => (x.type === 'street' ? { ...x, identifyAlso: also } : x)) } }).ok;
+    expect(bad(['routeName'])).toBe(false);
+    expect(bad(['nowhere'])).toBe(false);
+  });
+});
