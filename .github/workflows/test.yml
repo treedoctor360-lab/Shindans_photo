@@ -31,7 +31,14 @@ jobs:
           FORBIDDEN_WORDS: ${{ secrets.FORBIDDEN_WORDS }}
 
       - name: 画面テスト用のブラウザの準備
-        run: npx playwright install --with-deps chromium
+        # Ubuntu の部品の配信元につながらないとき（GitHub 側の一時的な障害）は、部品なしでブラウザだけを入れる
+        #  （GitHub のテスト用マシンには、ブラウザを動かす部品のほとんどが最初から入っている）
+        timeout-minutes: 15
+        run: |
+          timeout 300 npx playwright install --with-deps chromium || {
+            echo "::warning::Ubuntu の部品を入れられなかったため、ブラウザだけを入れます"
+            npx playwright install chromium
+          }
 
       - name: テスト（計算・Excel の部品テストと、画面を自動で操作するテスト）
         run: npm test
