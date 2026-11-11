@@ -105,3 +105,39 @@ test('同じ路線名でも路線番号が違えば、別の路線として足�
   await page.click('text=未入力のまま保存する');
   await expect(page.locator('#s-group option')).toHaveText([/223 試験/, /318 試験/]);
 });
+
+test('一覧から路線を選ぶと、路線名などと1本目の樹種が入る（addGroups.presets）', async ({ page }) => {
+  const cfg = JSON.parse(fs.readFileSync('test/fixtures/sample-config.json', 'utf8'));
+  cfg.numbering = { start: 1, carry: ['species'] };
+  cfg.dbFormat.sheets = cfg.dbFormat.sheets.map((x) => (x.type === 'street' ? { ...x, identifyAlso: ['routeNo'] } : x));
+  cfg.addGroups = {
+    siteType: 'street',
+    label: '路線',
+    fields: [{ key: 'routeName', label: '路線名' }, { key: 'routeNo', label: '路線番号' }],
+    presets: [
+      { label: '0223 試験（テストノキ）', values: { routeName: '試験', routeNo: '0223' }, tree: { species: 'テストノキ' }, count: 50 },
+      { label: '0318 試験（ベツノキ）', values: { routeName: '試験', routeNo: '0318' }, tree: { species: 'ベツノキ' }, count: 26 },
+    ],
+  };
+  fs.mkdirSync('test-results', { recursive: true });
+  fs.writeFileSync('test-results/add-group-presets.json', JSON.stringify(cfg));
+
+  await page.goto('./');
+  await page.fill('#s-date', '2099-05-06');
+  await page.fill('#s-insp', '試験 二郎(資格)');
+  await page.setInputFiles('[data-testid=config-file]', 'test-results/add-group-presets.json');
+  await page.click('.tab:has-text("一覧")');
+  await page.selectOption('[data-testid=add-group-preset]', '1');
+  await expect(page.locator('#ag-routeName')).toHaveValue('試験');
+  await expect(page.locator('#ag-routeNo')).toHaveValue('0318');
+  await page.click('[data-testid=add-group-submit]');
+  await expect(page.locator('#f-treeNo')).toHaveValue('1');
+  await expect(page.locator('#f-species')).toHaveValue('ベツノキ');
+  await page.click('[data-testid=save-to-list]');
+  await page.click('text=未入力のまま保存する');
+
+  // もう一度開くと、足した路線に入力済みの本数が付く
+  await page.click('[data-testid=add-group-open]');
+  await expect(page.locator('[data-testid=add-group-preset] option').nth(2)).toContainText('入力済み1本');
+  await expect(page.locator('[data-testid=add-group-preset] option').nth(1)).not.toContainText('入力済み');
+});

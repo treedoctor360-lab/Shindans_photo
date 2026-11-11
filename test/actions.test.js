@@ -279,3 +279,23 @@ describe('まとまりを名前のほかの項目でも分ける（dbFormat.shee
     expect(bad(['nowhere'])).toBe(false);
   });
 });
+
+describe('一覧から選ぶまとまり（addGroups.presets）', () => {
+  const ag = { siteType: 'street', label: '路線', fields: [{ key: 'routeName', label: '路線名' }, { key: 'routeNo', label: '路線番号' }] };
+  const cfg6 = { ...structuredClone(cfgJson), numbering: { start: 1 }, addGroups: { ...ag, presets: [{ label: '0318 架空', values: { routeName: '架空', routeNo: '0318' }, tree: { species: 'テストノキ' }, count: 26 }] } };
+
+  it('設定の検証：fields にない項目・名前のない一覧・樹種以外の tree は断る', () => {
+    expect(validateConfig(cfg6).errors).toEqual([]);
+    const bad = (p) => validateConfig({ ...cfg6, addGroups: { ...ag, presets: [p] } }).ok;
+    expect(bad({ label: 'x', values: { routeName: 'a', nowhere: 'b' } })).toBe(false);
+    expect(bad({ label: 'x', values: { routeNo: '1' } })).toBe(false);
+    expect(bad({ label: 'x', values: { routeName: 'a' }, tree: { height: '5' } })).toBe(false);
+    expect(bad({ label: 'x', values: { routeName: 'a' }, count: -1 })).toBe(false);
+  });
+
+  it('選んだまとまりの樹種を、1本目の木に入れる', () => {
+    const p = cfg6.addGroups.presets[0];
+    const r = addGroup({ ...initialState(), session: { date: '2099-05-06', inspector: '試験' } }, cfg6, p.values, 1, p.tree);
+    expect(r.state.trees[0]).toMatchObject({ routeName: '架空', routeNo: '0318', treeNo: '1', species: 'テストノキ' });
+  });
+});

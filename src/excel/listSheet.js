@@ -167,7 +167,7 @@ export async function exportListSheet(pages, cfg) {
       const vc = top.getCell(ci + 1);
       vc.value = h.value;
       vc.font = { name: font, size: base + 3, bold: true, color: pen };
-      vc.alignment = { vertical: 'bottom' };
+      vc.alignment = { vertical: 'bottom', shrinkToFit: true }; // 長い値（例 区域）は縮めて枠に収める
       vc.border = { bottom: thin };
       ws.mergeCells(1, ci + 1, 1, ci + 3);
       ci += 5;
