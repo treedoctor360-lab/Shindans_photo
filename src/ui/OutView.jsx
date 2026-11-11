@@ -91,8 +91,8 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
       const pages = listPages(groupTrees, cfg);
       const r = await exportListSheet(pages, cfg);
       if (r.errors.length) return setCheck({ title: '野帳の出力検査', errors: r.errors });
-      const sheet = cfg.dbFormat.sheets.find((s) => s.type === groupTrees[0]?.siteType);
-      download(`野帳_${safeName(groupTrees[0]?.[sheet?.identify]) || '野帳'}_${yymmdd()}.xlsx`, r.buffer);
+      // ファイル名はまとまりの表示名（例「0318 塩 区域」）。同じ名前で番号違いのまとまりが上書きし合わないように
+      download(`野帳_${safeName(pages[0]?.label).replace(/\s+/g, '_') || '野帳'}_${yymmdd()}.xlsx`, r.buffer);
       toast(
         `野帳を出力しました（${pages.length}枚・${groupTrees.length}本。全件照合OK）` +
           (r.long.length ? `。文字を小さくしても枠に収まらない欄：${r.long.map((x) => `${x.treeNo}の${x.label}`).join('、')}（短くするか、印刷して確かめてください）` : ''),

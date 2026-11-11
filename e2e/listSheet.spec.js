@@ -8,7 +8,7 @@ function configFile() {
   const [k1] = cfg.checks.map((c) => c.key);
   const yes = cfg.options[k1].find((v) => v !== '無');
   cfg.numbering = { start: 1, carry: ['species'] };
-  cfg.addGroups = { siteType: 'street', label: '路線', fields: [{ key: 'routeName', label: '路線名' }] };
+  cfg.addGroups = { siteType: 'street', label: '路線', fields: [{ key: 'routeName', label: '路線名' }, { key: 'routeNo', label: '路線番号' }] };
   cfg.details = [...cfg.details, { when: { field: k1, eq: yes }, field: 'whereX', label: '架空：部位' }];
   cfg.listSheet = {
     paper: 'A3',
@@ -40,6 +40,7 @@ test('路線を足して入力した木を、A3 の一覧型の野帳に出力�
   await expect(page.locator('[data-testid=config-status] .ok')).toBeVisible();
   await page.click('.tab:has-text("一覧")');
   await page.fill('#ag-routeName', '試験の新しい通り');
+  await page.fill('#ag-routeNo', '7');
   await page.click('[data-testid=add-group-submit]');
 
   // 1本目：項目1を「有」にして部位を入れる
@@ -62,7 +63,7 @@ test('路線を足して入力した木を、A3 の一覧型の野帳に出力�
   await expect(page.locator('[data-testid=export-field]')).toHaveCount(0); // 原本の野帳のボタンは出さない
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=export-list-sheet]')]);
   await expect(page.locator('.toast')).toContainText('全件照合OK');
-  expect(dl.suggestedFilename()).toMatch(/^野帳_試験の新しい通り_\d{6}\.xlsx$/);
+  expect(dl.suggestedFilename()).toMatch(/^野帳_7_試験の新しい通り_\d{6}\.xlsx$/) // 路線番号も入る（番号違いの路線が上書きし合わない）;
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(await dl.path());
