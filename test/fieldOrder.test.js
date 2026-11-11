@@ -23,6 +23,13 @@ describe('野帳の並びに合わせる設定', () => {
     const withCheck = (o) => validateConfig({ ...cfg, checks: cfg.checks.map((c, i) => (i === 1 ? { ...c, ...o } : c)) }).ok;
     expect(withCheck({ place: 'top' })).toBe(false);
     expect(withCheck({ always: 'yes' })).toBe(false);
+    // measure：noteMeasures の種類と、入れられる値
+    expect(withCheck({ measure: { kinds: ['decay'], eq: '有' } })).toBe(true);
+    expect(withCheck({ measure: { kinds: ['decay', 'rod'], eq: ['小', '有'] } })).toBe(true);
+    expect(withCheck({ measure: { kinds: ['nowhere'], eq: '有' } })).toBe(false);
+    expect(withCheck({ measure: { kinds: [], eq: '有' } })).toBe(false);
+    expect(withCheck({ measure: { kinds: ['decay'] } })).toBe(false);
+    expect(validateConfig({ ...cfg, noteMeasures: undefined, checks: cfg.checks.map((c, i) => (i === 1 ? { ...c, measure: { kinds: ['decay'], eq: '有' } } : c)) }).ok).toBe(false);
     expect(validateConfig({ ...cfg, initial: { ...cfg.initial, afterCheck: 'nowhere' } }).ok).toBe(false);
     expect(validateConfig({ ...cfg, initial: { ...cfg.initial, afterCheck: first } }).ok).toBe(false); // 計測の区切りに出す項目の次には置けない
   });

@@ -147,6 +147,15 @@ export function validateConfig(cfg) {
     cfg.checks.forEach((c) => {
       need(c?.place == null || c.place === 'measure', `checks の ${c?.key} の place は "measure" だけ使えます`);
       need(c?.always == null || typeof c.always === 'boolean', `checks の ${c?.key} の always は true か false にしてください`);
+      // measure：この項目の下に出す部位・寸法（noteMeasures の種類）と、入れられる値（eq。例「有」）
+      if (c?.measure != null) {
+        const kinds = (cfg.noteMeasures?.kinds || []).map((k) => k?.key);
+        const m = c.measure;
+        need(
+          m && isArr(m.kinds) && m.kinds.length > 0 && m.kinds.every((k) => kinds.includes(k)) && (typeof m.eq === 'string' || (isArr(m.eq) && m.eq.length > 0)),
+          `checks の ${c?.key} の measure は { kinds: [noteMeasures の種類…], eq: 値 か [値…] } にしてください`,
+        );
+      }
     });
   // 詳しい診断の要否を、点検項目の並びの中（その項目の次）に出す（省略可）
   if (cfg.initial?.afterCheck != null)

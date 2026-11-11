@@ -22,16 +22,26 @@ function Choice({ k, opts, value, onPress }) {
 }
 
 // tree：今の木。onChange(fn)：木を変える（fn は木 → 新しい木）。readOnly：見るだけ
-export default function NoteMeasures({ cfg, tree, onChange, readOnly = false }) {
+//  kinds：この種類だけを出す（点検項目の下に出すとき。checks の measure）。種類が1つなら選ばずにその種類で開く
+//  canAdd：入れるボタンを出すか（点検項目が「有」のときだけ。入れたものは「無」に変えても一覧に出す）
+//  exclude：出さない種類（特記事項の下では、点検項目の下に出す種類を除く）
+export default function NoteMeasures({ cfg, tree, onChange, readOnly = false, kinds = null, canAdd = true, exclude = [] }) {
   const [edit, setEdit] = useState(null); // 入れている・直している寸法 { i（直す記録の番号。新しく入れるときは -1）, kind, place, values }
   const [askRemove, setAskRemove] = useState(-1); // 消すのを確かめている記録の番号
   if (!cfg.noteMeasures) return null;
   const list = toMeasuresV2(tree, cfg).measures; // 前の形の木も、新しい形で見せる（直したときに新しい形に移す）
   const kindLabel = (k) => measureKinds(cfg).find((x) => x.key === k)?.label || k;
+  // ここで扱う種類（kinds があればその種類だけ、exclude の種類は除く）
+  const shown = (k) => (kinds ? kinds.includes(k) : !exclude.includes(k));
+  const myKinds = measureKinds(cfg).filter((k) => shown(k.key));
+  const rows = list.map((m, i) => ({ m, i })).filter(({ m }) => shown(m.kind)); // i は木の一覧での番号（直す・消すに使う）
+  if (!myKinds.length && !rows.length) return null;
+  const inCheck = !!kinds; // 点検項目の下に出している
 
   const open = (i) => {
     const m = list[i];
-    setEdit(m ? { i, kind: m.kind, place: m.place || '', values: structuredClone(m.values || {}) } : { i: -1, kind: '', place: '', values: {} });
+    const one = myKinds.length === 1 ? myKinds[0].key : ''; // 種類が1つなら選ばずに開く
+    setEdit(m ? { i, kind: m.kind, place: m.place || '', values: structuredClone(m.values || {}) } : { i: -1, kind: one, place: '', values: one ? measurePrefill(one, tree, cfg) : {} });
     setAskRemove(-1);
   };
   const line = edit ? measureLine(cfg, edit.kind, edit.place, edit.values) : '';
@@ -47,11 +57,13 @@ export default function NoteMeasures({ cfg, tree, onChange, readOnly = false }) 
   };
 
   return (
-    <div className="measures" data-testid="measures">
-      <div className="lbl">
-        寸法 <small>数値で入れたもの。野帳の特記事項の最後に並びます{cfg.noteMeasures.merge ? '（同じ部位・種類は①②で1行に）' : ''}</small>
-      </div>
-      {list.map((m, i) => (
+    <div className="measures" data-testid={inCheck ? 'check-measures' : 'measures'} data-kinds={inCheck ? kinds.join(' ') : undefined}>
+      {!inCheck && (
+        <div className="lbl">
+          寸法 <small>数値で入れたもの。野帳の特記事項の最後に並びます{cfg.noteMeasures.merge ? '（同じ部位・種類は①②で1行に）' : ''}</small>
+        </div>
+      )}
+      {rows.map(({ m, i }) => (
         <div className="measure-row" key={i} data-testid="measure-row">
           <span className="measure-line" data-testid="measure-line">
             {measureLine(cfg, m.kind, m.place, m.values) || `${kindLabel(m.kind)}（数値なし）`}
@@ -87,20 +99,20 @@ export default function NoteMeasures({ cfg, tree, onChange, readOnly = false }) 
         </div>
       ))}
 
-      {!readOnly && !edit && (
+      {!readOnly && !edit && canAdd && myKinds.length > 0 && (
         <button type="button" className="more" onClick={() => open(-1)} data-testid="measure-open">
-          ＋ 寸法を入れる（{measureKinds(cfg)
-            .map((k) => k.label)
-            .join('・')}）
+          {inCheck
+            ? `＋ 部位・寸法を入れる${myKinds.length > 1 ? `（${myKinds.map((k) => k.label).join('・')}）` : ''}`
+            : `＋ 寸法を入れる（${myKinds.map((k) => k.label).join('・')}）`}
         </button>
       )}
 
       {!readOnly && edit && (
         <div className="measure" data-testid="measure">
-          <div className="lbl">{edit.i >= 0 ? `寸法を直す：${kindLabel(edit.kind)}` : '寸法を入れる'}</div>
-          {edit.i < 0 && (
+          <div className="lbl">{edit.i >= 0 ? `寸法を直す：${kindLabel(edit.kind)}` : myKinds.length === 1 ? `${kindLabel(edit.kind)}の部位・寸法を入れる` : '寸法を入れる'}</div>
+          {edit.i < 0 && myKinds.length > 1 && (
             <div className="chips" role="group" aria-label="種類">
-              {measureKinds(cfg).map((k) => (
+              {myKinds.map((k) => (
                 <button
                   key={k.key}
                   type="button"

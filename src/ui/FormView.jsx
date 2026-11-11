@@ -327,6 +327,10 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               />
             </div>
           ))}
+        {c.measure && (
+          // 部位・寸法（checks の measure。特記事項の寸法と同じ入れ方を、この項目の種類だけで出す）
+          <NoteMeasures cfg={cfg} tree={t} onChange={(fn) => change(fn)} readOnly={readOnly} kinds={c.measure.kinds} canAdd={[].concat(c.measure.eq).includes(t[c.key])} />
+        )}
       </fieldset>
     );
   };
@@ -698,7 +702,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
                 change((x) => ({ ...toMeasuresV2(x, cfg), notes: v })); // 寸法の1行は文字に入れない（新しい形に移す）
               }}
             />
-            <NoteMeasures cfg={cfg} tree={t} onChange={(fn) => change(fn)} readOnly={readOnly} />
+            <NoteMeasures cfg={cfg} tree={t} onChange={(fn) => change(fn)} readOnly={readOnly} exclude={cfg.checks.flatMap((c) => c.measure?.kinds || [])} />
             <label className="lbl" htmlFor="f-dbnote" style={{ marginTop: 6 }}>
               一覧表用の特記 <small>{t.dbNoteManual ? '手入力' : '定型文から自動で作成'}</small>
             </label>

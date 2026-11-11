@@ -13,7 +13,7 @@
 import ExcelJS from 'exceljs';
 import { girthOf } from '../core/calc.js';
 import { groupKey, groupLabel } from '../core/groups.js';
-import { fullNotesOf } from '../core/noteMeasures.js';
+import { fullNotesOf, isMeasuresV2, measuresWithLines } from '../core/noteMeasures.js';
 import { isLocked } from '../core/tree.js';
 import { fitSize } from './fitText.js';
 
@@ -29,25 +29,37 @@ const str = (v) => String(v ?? '').trim();
 // 「有」のとき入れた項目を、点検項目ごとに「項目：内容」で並べ、特記事項の文を足す
 //  項目の名前は、details の label の「：」より前（例「腐朽：部位・大きさ」→「腐朽」）。なければ点検項目の名前
 //  details の noteText（例「H={v}m」）があれば、その形で書く
+//  部位・寸法（checks の measure の種類）は、その点検項目のすぐ後ろに1行ずつ。ほかの寸法は特記事項の文の後ろ
+//  行の頭の「・」は付けない（区切りの文字でつなぐので）
 export function listRemarks(tree, cfg) {
   const ls = cfg.listSheet || {};
   const join = ls.remarksJoin ?? '／';
   const locked = isLocked(tree, cfg);
   const parts = [];
-  const fields = [...cfg.checks.map((c) => ({ key: c.key, label: c.label, lockable: !c.always })), { key: 'initialNeeded', label: cfg.initial.label, lockable: false }];
+  const lines = isMeasuresV2(tree) ? measureLinesWithKind(tree, cfg) : [];
+  const used = new Set(); // 点検項目の後ろに書いた寸法の1行
+  const fields = [...cfg.checks.map((c) => ({ key: c.key, label: c.label, lockable: !c.always, kinds: c.measure?.kinds || [] })), { key: 'initialNeeded', label: cfg.initial.label, lockable: false, kinds: [] }];
   for (const f of fields) {
+    const mine = lines.filter((l) => f.kinds.includes(l.kind));
+    mine.forEach((l) => used.add(l.line));
     if (locked && f.lockable) continue;
     const ds = cfg.details.filter((d) => d.when.field === f.key && tree[f.key] === d.when.eq);
     const vals = ds.map((d) => ({ d, v: str(tree[d.field]) })).filter((x) => x.v);
-    if (!vals.length) continue;
-    const name = ds[0].label.includes('：') ? ds[0].label.split('：')[0] : f.label;
-    parts.push(`${name}：${vals.map(({ d, v }) => (d.noteText ? d.noteText.replace('{v}', v) : v)).join(' ')}`);
+    if (vals.length) {
+      const name = ds[0].label.includes('：') ? ds[0].label.split('：')[0] : f.label;
+      parts.push(`${name}：${vals.map(({ d, v }) => (d.noteText ? d.noteText.replace('{v}', v) : v)).join(' ')}`);
+    }
+    parts.push(...mine.map((l) => l.line));
   }
-  const free = String(fullNotesOf(tree, cfg) || '')
-    .split('\n')
-    .map(str)
-    .filter(Boolean);
-  return [...parts, ...free].join(join);
+  const text = isMeasuresV2(tree) ? String(tree.notes || '') : String(fullNotesOf(tree, cfg) || '');
+  const free = [...text.split('\n'), ...lines.filter((l) => !used.has(l.line)).map((l) => l.line)].map((l) => str(l).replace(/^・\s*/, '')).filter(Boolean);
+  return [...new Set(parts), ...free].join(join);
+}
+
+// 寸法の1行と種類（まとめた1行は1回だけ）
+function measureLinesWithKind(tree, cfg) {
+  const seen = new Set();
+  return measuresWithLines(tree, cfg).filter((m) => m.line && !seen.has(m.line) && seen.add(m.line));
 }
 
 // 1つの欄に書く文字
