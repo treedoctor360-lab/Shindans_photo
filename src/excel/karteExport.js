@@ -1,4 +1,5 @@
 // 詳しい診断（初期診断など）の記録から、確認用のカルテ（1本1シート）を作る
+//  簡易診断のカルテ（設定 karte。提出用）も同じ仕組みで作る（記録の形は src/core/simpleKarte.js、submit: true）
 //
 // 最終の提出用のカルテは、別の仕組み（データ入力用ブックを読むマクロなど）で作る。
 // ここで作るのは、入力の途中で中身を紙のカルテと同じ見た目で確かめるための「確認用」。
@@ -30,6 +31,9 @@ import { colNumber, setCells, splitAddress } from './xmlCells.js';
 import { sheetFiles } from './xlsxFix.js';
 
 const DEFAULT_MARK = '確認用（提出不可）';
+
+// 設定にあるカルテの設定（簡易診断の karte・詳しい診断の initialSurvey.karte）。様式のブックは1つで、両方のシートを入れてよい
+export const karteConfs = (cfg) => [cfg?.karte, cfg?.initialSurvey?.karte].filter(Boolean);
 
 // ---------- 様式のブックを読む ----------
 
@@ -72,9 +76,13 @@ export function readCells(sheetXml, sst) {
 
 // 様式のブックを読み、設定の様式のシートを探す
 //  返す形：{ sheets: [{ spec, name, file, errors: [...] }], errors: [...] }（errors は見つからない様式など）
-export async function readKarteTemplate(buffer, cfg) {
-  const k = cfg.initialSurvey?.karte;
-  if (!k) throw new Error('設定に initialSurvey.karte（カルテの様式）がありません');
+//  k：使うカルテの設定（省略すると、設定にあるカルテの様式すべて。簡易診断の karte と詳しい診断の initialSurvey.karte）
+export async function readKarteTemplate(buffer, cfg, k = null) {
+  if (!k) {
+    const all = karteConfs(cfg);
+    if (!all.length) throw new Error('設定にカルテの様式（karte・initialSurvey.karte）がありません');
+    k = { sheets: all.flatMap((x) => x.sheets) };
+  }
   const zip = await JSZip.loadAsync(buffer);
   if (!zip.file('xl/workbook.xml')) throw new Error('Excel のブック（.xlsx・.xlsm）を選んでください');
   const files = await sheetFiles(zip);
@@ -246,11 +254,12 @@ const codeOf = (rec, cfg) => {
 // 確認用のカルテを作る
 //  records：詳しい診断の記録（入力済み・削除していないもの。絞り込みは呼ぶ側）
 //  返す形：{ buffer, errors: [...], stats: { sheets: [{ name, treeNo, form }], skippedNoTemplate: [番号…] } }
-export async function exportKarte(templateBuffer, records, cfg) {
-  const k = cfg.initialSurvey?.karte;
-  if (!k) throw new Error('設定に initialSurvey.karte（カルテの様式）がありません');
-  const mark = k.mark ?? DEFAULT_MARK;
-  const tpl = await readKarteTemplate(templateBuffer.slice(0), cfg);
+//  k：カルテの設定（既定は詳しい診断の initialSurvey.karte）。submit: true は提出用（簡易診断のカルテ）：
+//    印（mark）は書いたときだけ入れ、行の高さは広げない（様式の見た目を変えない。収まらない欄は知らせる）
+export async function exportKarte(templateBuffer, records, cfg, k = cfg.initialSurvey?.karte, { submit = false } = {}) {
+  if (!k) throw new Error('設定にカルテの様式がありません');
+  const mark = submit ? k.mark || '' : (k.mark ?? DEFAULT_MARK);
+  const tpl = await readKarteTemplate(templateBuffer.slice(0), cfg, k);
   const errors = [];
   const stats = { sheets: [], skippedNoTemplate: [], tooLong: [], grown: [] }; // tooLong：最小の大きさでも枠に収まらない欄 [{ sheet, cell }]。grown：収めるために行の高さを広げた欄 [{ sheet, cell, row }]
   const src = await JSZip.loadAsync(templateBuffer);
@@ -277,7 +286,7 @@ export async function exportKarte(templateBuffer, records, cfg) {
   const minFont = k.minFontSize ?? 7;
 
   const order = (r) => [String(cfg.dbFormat.sheets.findIndex((x) => x.type === r.siteType)).padStart(3, '0'), codeOf(r, cfg), toHalf(String(r.treeNo ?? '')).trim()].join('|');
-  const sorted = [...records].sort((a, b) => order(a).localeCompare(order(b), 'ja'));
+  const sorted = [...records].sort((a, b) => order(a).localeCompare(order(b), 'ja', { numeric: true })); // 番号は数の順（2 の次に 10）
   const used = new Set();
   const out = []; // [{ name, xml, edits, key, treeNo, form }]
   for (const rec of sorted) {
@@ -306,7 +315,8 @@ export async function exportKarte(templateBuffer, records, cfg) {
             e.style = styles.fit(b, r.size);
             e.fit = r.size;
           }
-          if (!r.fits) {
+          if (!r.fits && submit) e.tooLong = true; // 提出用は行の高さを変えない
+          else if (!r.fits) {
             // 最小の大きさでも収まらなければ、枠のいちばん下の行の高さを広げる（確認用なので見た目より中身が読めることを優先）
             //  様式が「1ページに合わせて印刷」なら、広げても1ページのまま（全体が少し小さくなる）
             const h = box.lastRowHeight + heightNeeded(e.value, r.size, box.width) - box.height;
@@ -340,6 +350,35 @@ export async function exportKarte(templateBuffer, records, cfg) {
   }
   if (errors.length) return { buffer: null, errors, stats };
   if (!out.length) return { buffer: null, errors: [], stats };
+
+  // 様式のブックから、そのまま写すシート（設定 keepSheets。例 選択肢の一覧のシート。様式の入力規則がそのシートを参照しているとき）
+  //  名前を変えずに最後に足す（参照が切れないように）。照合では、様式と1文字も違わないことを確かめる
+  if (k.keepSheets?.length) {
+    const files = await sheetFiles(src);
+    for (const pat of k.keepSheets) {
+      const re = new RegExp(pat);
+      const hit = files.find((f) => re.test(unescapeXml(f.name)));
+      if (!hit) {
+        errors.push(`そのまま写すシート（${pat}）が様式のブックに見つかりません`);
+        continue;
+      }
+      const name = unescapeXml(hit.name);
+      if (used.has(name.toLowerCase())) {
+        errors.push(`そのまま写すシート「${name}」と同じ名前のカルテのシートがあります`);
+        continue;
+      }
+      used.add(name.toLowerCase());
+      const key = `keep|${name}`;
+      try {
+        base.set(key, normalizeSheet(await src.file(hit.file).async('string'), ''));
+      } catch (e) {
+        errors.push(`シート「${name}」：${e.message}`);
+        continue;
+      }
+      out.push({ name, xml: base.get(key), edits: [], key, treeNo: '', form: 'keep', rows: new Map() });
+    }
+    if (errors.length) return { buffer: null, errors, stats };
+  }
 
   const buffer = await buildBook(src, out, styles.xml());
 
@@ -484,6 +523,8 @@ async function verifyKarte(buffer, sheets, base) {
 function cellOf(v) {
   if (v == null) return '';
   if (typeof v === 'number' || typeof v === 'string') return v;
+  // 日付の表示形式のセルは ExcelJS が日付にして読むので、Excel の日付の数に戻して比べる
+  if (v instanceof Date) return Math.round((v.getTime() - Date.UTC(1899, 11, 30)) / 86400000);
   if (v.richText) return v.richText.map((r) => r.text).join('');
   if (v.text != null) return String(v.text);
   return String(v);

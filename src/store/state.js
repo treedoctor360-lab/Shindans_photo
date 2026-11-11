@@ -184,11 +184,15 @@ export const loadInitialBookFile = () => idbGet('initialBook');
 
 // 確認用カルテの様式（カルテの空の様式が入ったブック）を読み込む。この端末にだけ置く（サーバーには置かない）
 //  返す形：状態に入れる情報 { name, date, sheets: [見つかったシート名…], errors: [...] }
+//  errorsOf：カルテの設定ごとの誤り（簡易診断の karte・詳しい診断の initial）。片方の様式がなくても、もう片方は作れる
 export async function readKarteTemplateFile(name, buffer, cfg, today) {
   const r = await readKarteTemplate(buffer.slice(0), cfg);
   if (!r.sheets.length) throw new Error('設定にあるカルテの様式のシートが見つかりませんでした。カルテの様式が入ったブックを選んでください');
+  const errorsOf = {};
+  if (cfg.karte) errorsOf.karte = (await readKarteTemplate(buffer.slice(0), cfg, cfg.karte)).errors;
+  if (cfg.initialSurvey?.karte) errorsOf.initial = (await readKarteTemplate(buffer.slice(0), cfg, cfg.initialSurvey.karte)).errors;
   await idbPut('karteTemplate', { name, date: today, buffer });
-  return { name, date: today, sheets: r.sheets.map((s) => s.name), errors: r.errors };
+  return { name, date: today, sheets: r.sheets.map((s) => s.name), errors: r.errors, errorsOf };
 }
 export const loadKarteTemplateFile = () => idbGet('karteTemplate');
 

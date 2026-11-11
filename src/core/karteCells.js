@@ -13,17 +13,30 @@ const isAddr = (x) => typeof x === 'string' && /^[A-Z]{1,3}[1-9]\d*$/.test(x);
 
 // ---------- 設定の確かめ（config.js から呼ぶ） ----------
 //  keys：その書式（form）で使える項目の名前（入力画面の項目・ブックの列・調査日など）
-export function validateKarte(k, keysOf, siteTypes, need) {
-  if (!need(isObj(k), 'initialSurvey.karte の形が違います')) return;
-  need(k.mark == null || typeof k.mark === 'string', 'initialSurvey.karte.mark は文字にしてください');
-  need(k.fileLabel == null || typeof k.fileLabel === 'string', 'initialSurvey.karte.fileLabel（ファイル名に入れる書式の名前）は文字にしてください');
-  need(k.minFontSize == null || (typeof k.minFontSize === 'number' && k.minFontSize >= 5 && k.minFontSize <= 11), 'initialSurvey.karte.minFontSize（長い文を小さくするときの最小の文字の大きさ）は 5〜11 の数にしてください');
-  if (!need(Array.isArray(k.sheets) && k.sheets.length > 0, 'initialSurvey.karte.sheets（カルテの様式の一覧）がありません')) return;
+//  where：誤りの文に出す設定の場所。forms：使える書式（form）の名前
+export function validateKarte(k, keysOf, siteTypes, need, where = 'initialSurvey.karte', forms = ['initial', 'environment']) {
+  if (!need(isObj(k), `${where} の形が違います`)) return;
+  need(k.mark == null || typeof k.mark === 'string', `${where}.mark は文字にしてください`);
+  need(k.fileLabel == null || typeof k.fileLabel === 'string', `${where}.fileLabel（ファイル名に入れる書式の名前）は文字にしてください`);
+  need(k.minFontSize == null || (typeof k.minFontSize === 'number' && k.minFontSize >= 5 && k.minFontSize <= 11), `${where}.minFontSize（長い文を小さくするときの最小の文字の大きさ）は 5〜11 の数にしてください`);
+  need(
+    k.keepSheets == null ||
+      (Array.isArray(k.keepSheets) &&
+        k.keepSheets.every((x) => {
+          try {
+            return isStr(x) && !!new RegExp(x);
+          } catch {
+            return false;
+          }
+        })),
+    `${where}.keepSheets（そのまま写すシートの名前の正規表現の並び）が読めません`,
+  );
+  if (!need(Array.isArray(k.sheets) && k.sheets.length > 0, `${where}.sheets（カルテの様式の一覧）がありません`)) return;
   const seen = new Set();
   k.sheets.forEach((sh, i) => {
-    const at = `initialSurvey.karte.sheets[${i}]`;
+    const at = `${where}.sheets[${i}]`;
     if (!need(isObj(sh), `${at} の形が違います`)) return;
-    need(['initial', 'environment'].includes(sh.form), `${at}.form は initial・environment のどれかです`);
+    need(forms.includes(sh.form), `${at}.form は ${forms.join('・')} のどれかです`);
     need(siteTypes.includes(sh.siteType), `${at}.siteType は dbFormat.sheets の type のどれかです`);
     const id = `${sh.form}|${sh.siteType}`;
     need(!seen.has(id), `${at}：同じ form・siteType の様式が2つあります`);
@@ -57,6 +70,7 @@ export function validateKarte(k, keysOf, siteTypes, need) {
       if (c.fmt != null && need(typeof c.fmt === 'string' && c.fmt.length > 0, `${ct}.fmt は文字（Excel の表示形式）にしてください`))
         fmtKeys(c.fmt).filter(unknown).forEach((x) => need(false, unknownMsg(x)));
       need(c.join == null || typeof c.join === 'string', `${ct}.join は文字にしてください`);
+      need(c.skipEmpty == null || typeof c.skipEmpty === 'boolean', `${ct}.skipEmpty は true か false にしてください`);
       need(c.replaceFormula == null || typeof c.replaceFormula === 'boolean', `${ct}.replaceFormula は true か false にしてください`);
       if (c.boxes != null) {
         need(typeof c.boxes === 'string' && boxOptions(c.boxes).length > 0, `${ct}.boxes は「□無 □有」のような□の付いた文字にしてください`);
@@ -126,7 +140,9 @@ export function karteValue(c, rec) {
     const v = rec[k];
     return v == null ? '' : typeof v === 'number' ? String(v) : String(v);
   };
-  let v = c.keys ? (c.keys.every((k) => get(k).trim() === '') ? '' : c.keys.map(get).join(c.join ?? '')) : get(c.key);
+  // skipEmpty：keys のうち空の項目はつながない（区切りの文字だけが残らないように）
+  const parts = c.keys ? c.keys.map(get).filter((x) => !c.skipEmpty || x.trim() !== '') : [];
+  let v = c.keys ? (parts.every((x) => x.trim() === '') ? '' : parts.join(c.join ?? '')) : get(c.key);
   if (c.boxes != null) return fillBoxes(c, v);
   if (c.map && v.trim() in c.map) v = c.map[v.trim()];
   if (c.omit && c.omit.includes(v.trim())) return '';

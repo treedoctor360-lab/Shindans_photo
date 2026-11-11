@@ -9,6 +9,7 @@ import { buildPages, exportFieldSheet } from '../excel/fieldSheet.js';
 import { exportListSheet, listPages } from '../excel/listSheet.js';
 import { exportInitialBook } from '../excel/initialExport.js';
 import { exportKarte } from '../excel/karteExport.js';
+import { simpleKarteRecord } from '../core/simpleKarte.js';
 import { gradeWriteBack, initialsForBook, karteRecords } from '../store/initial.js';
 import { loadInitialBookFile, loadKarteTemplateFile, loadLedgerFile, loadTemplate } from '../store/state.js';
 import { unsentCount, unsentList } from '../store/sync.js';
@@ -47,6 +48,7 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
   const [gradeKept, setGradeKept] = useState([]); // 一覧表の出力で、健全度が既に入っていて書き換えなかった木
   const [karteAll, setKarteAll] = useState(false); // 確認用カルテを、すべての公園・路線をまとめて出すか（既定は選んでいる公園・路線だけ）
   const [karteLong, setKarteLong] = useState([]); // 確認用カルテで、文字を小さくしても枠に収まらなかった欄
+  const [simpleLong, setSimpleLong] = useState([]); // 簡易診断のカルテで、文字を小さくしても枠に収まらなかった欄
   const [withUnconfirmed, setWithUnconfirmed] = useState(false); // 未確定の木も一覧表に書き込むか（途中経過の確認用）
   const [handKeys, setHandKeys] = useState(null); // 内勤さんに渡す Excel に出す公園・路線（null：今見ている公園・路線だけ）
   if (!cfg || !state.trees.length) {
@@ -84,6 +86,29 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
       setBusy('');
     }
   };
+
+  // 簡易診断のカルテ（設定 karte。提出用。今の公園・路線の入力済みの木。サーバーを使うときは確定した木だけ）
+  const dbIds = new Set(db.trees.map((t) => t.id));
+  const simpleKarteTrees = shown.filter((t) => !useReview || withUnconfirmed || dbIds.has(t.id));
+  const onSimpleKarte = () =>
+    run('簡易診断カルテ', async () => {
+      const file = await loadKarteTemplateFile();
+      if (!file) throw new Error('カルテの様式がありません。「設定」で読み込んでください');
+      const recs = simpleKarteTrees.map((t) => simpleKarteRecord(t, cfg));
+      const r = await exportKarte(file.buffer.slice(0), recs, cfg, cfg.karte, { submit: true });
+      if (r.errors.length) return setCheck({ title: 'カルテの出力検査', errors: r.errors });
+      if (!r.stats.sheets.length) return toast('カルテにする木がありませんでした');
+      const label = cfg.karte.fileLabel || 'カルテ';
+      const nos = numberRanges(simpleKarteTrees.map((t) => t.treeNo));
+      // ファイル名：「書式の名前_路線の表示名_番号-番号_日付」（表示名の頭の [道路] などは除く）
+      const name = gname.replace(/^\[.*?\]\s*/, '');
+      download(`${safeName([label, name, nos].filter(Boolean).join('_')).replace(/\s+/g, '_')}${draftMark}_${yymmdd()}.xlsx`, r.buffer);
+      setSimpleLong(r.stats.tooLong || []);
+      toast(
+        `検査OK。${r.stats.sheets.length}本のカルテを作りました（1本1シート）` +
+          (r.stats.tooLong?.length ? `。文字を小さくしても枠に収まらない欄が${r.stats.tooLong.length}か所あります（画面の下に一覧）` : ''),
+      );
+    });
 
   // 一覧型の野帳（設定 listSheet。原本を使わず一から作る。今の公園・路線）
   const onListSheet = () =>
@@ -392,13 +417,42 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
         </div>
       )}
 
+      {cfg.karte && (
+        <div className="sec" data-testid="simple-karte-sec">
+          <h2>{cfg.karte.fileLabel || 'カルテ'}</h2>
+          <button
+            type="button"
+            className="btn fill big"
+            disabled={!!busy || !simpleKarteTrees.length || !state.karteTemplateInfo || (state.karteTemplateInfo.errorsOf?.karte ?? state.karteTemplateInfo.errors)?.length > 0}
+            onClick={onSimpleKarte}
+            data-testid="export-simple-karte"
+          >
+            {busy === '簡易診断カルテ' ? '作成中…' : `${cfg.karte.fileLabel || 'カルテ'}を出力：${gname}（${simpleKarteTrees.length}本）`}
+          </button>
+          {simpleLong.length > 0 && (
+            <div className="alert warn" data-testid="simple-karte-long">
+              <span>
+                文字を小さくしても枠に収まらない欄があります。カルテを開いて確かめてください：
+                {simpleLong.slice(0, 15).map((x) => `${x.sheet} ${x.cell}`).join('・')}
+                {simpleLong.length > 15 ? 'ほか' : ''}
+              </span>
+            </div>
+          )}
+          <p className="hint">
+            {state.karteTemplateInfo
+              ? `入力済みの木を、カルテの様式に1本1シートで書き込みます${useReview && !withUnconfirmed ? '（確定した木だけ）' : ''}。写真は入りません。長い文は文字を小さくし、様式の行の高さは変えません。保存する前に、書き出したファイルを読み直して照合します。`
+              : '先に「設定」でカルテの様式を読み込んでください。'}
+          </p>
+        </div>
+      )}
+
       {ini && cfg.initialSurvey.karte && (
         <div className="sec" data-testid="karte-sec">
           <h2>{cfg.initialSurvey.label}：確認用カルテ</h2>
           <button
             type="button"
             className="btn big"
-            disabled={!!busy || !karteRecs.length || !state.karteTemplateInfo || state.karteTemplateInfo.errors?.length > 0}
+            disabled={!!busy || !karteRecs.length || !state.karteTemplateInfo || (state.karteTemplateInfo.errorsOf?.initial ?? state.karteTemplateInfo.errors)?.length > 0}
             onClick={onKarte}
             data-testid="export-karte"
           >

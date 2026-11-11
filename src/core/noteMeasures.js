@@ -179,7 +179,7 @@ export function measureLine(cfg, kindKey, place, values) {
 }
 
 // 数字の部分だけの文（例「H0～0.4m、40×20cm」）
-const measureText = (cfg, kindKey, values) => buildText(values, measureParts(kindKey, cfg), cfg.noteMeasures?.join ?? '、');
+export const measureText = (cfg, kindKey, values) => buildText(values, measureParts(kindKey, cfg), cfg.noteMeasures?.join ?? '、');
 const lineOf = (cfg, kind, place, text) =>
   (kind.line || cfg.noteMeasures.line || '{place}の{kind}：{text}').replace('{place}', place).replace('{kind}', kind.label).replace('{text}', text);
 
