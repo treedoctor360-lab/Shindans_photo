@@ -1,6 +1,9 @@
 // 設定画面：調査情報、設定ファイル・野帳の原本・台帳の読み込み
 import { useState } from 'react';
 import { bookCount } from '../store/initial.js';
+import { idbPut } from '../store/idb.js';
+import { needsNewWorkspace, rememberTitle, putConfigInWorkspace } from '../store/workspace.js';
+import WorkspaceSection from './WorkspaceSection.jsx';
 import { applyLedger, loadConfigText, importInitialBook, readKarteTemplateFile, readLedgerFile, saveTemplate } from '../store/state.js';
 import PrevSection from './PrevSection.jsx';
 import { diagnosticDump } from '../store/diagnose.js';
@@ -32,21 +35,44 @@ function FileButton({ label, accept, onFile, disabled, testId }) {
   );
 }
 
-export default function SettingsView({ state, update, config, setConfig, toast }) {
+export default function SettingsView({ state, update, config, setConfig, toast, flush }) {
   const [configErrors, setConfigErrors] = useState([]);
+  const [askWorkspace, setAskWorkspace] = useState(null); // 名前の違う設定：新しい業務として始めるか聞いている間の設定
   const [busy, setBusy] = useState(false);
   const s = state.session;
   const setSession = (k, v) => update((st) => ({ ...st, session: { ...st.session, [k]: v } }));
 
   const onConfig = async (file) => {
-    const r = await loadConfigText(await file.text(), config);
+    // まず確かめるだけ（業務の名前が違えば、どこに入れるかを聞いてから保存する）
+    const r = await loadConfigText(await file.text(), config, { save: false });
     setConfigErrors(r.errors);
+    setAskWorkspace(null);
     if (r.errors.length) {
       toast(config ? '設定ファイルに誤りがあるため、前の設定のまま使います' : '設定ファイルに誤りがあります');
       return;
     }
-    setConfig(r.config);
+    if (needsNewWorkspace(state, config, r.config)) return setAskWorkspace(r.config);
+    await loadHere(r.config);
+  };
+
+  // 今の業務に読み込む
+  const loadHere = async (next) => {
+    await idbPut('config', next);
+    setAskWorkspace(null);
+    setConfig(next);
     toast('設定ファイルを読み込みました');
+    rememberTitle(next.job?.title).catch(() => {}); // 業務の一覧に出す名前（画面を待たせない）
+  };
+
+  // 別の業務として使う（今の業務の入力内容はそのまま残す）→ 画面を読み込み直す
+  const loadAsNew = async (next) => {
+    try {
+      await flush(); // 待っている保存を、今の業務の置き場所に書き切ってから
+      await putConfigInWorkspace(next);
+      window.location.reload();
+    } catch (e) {
+      toast(e.message || '切り替えられませんでした');
+    }
   };
 
   const onTemplate = async (file) => {
@@ -140,6 +166,8 @@ export default function SettingsView({ state, update, config, setConfig, toast }
         <p className="hint">木を保存するとき、この日付と調査者をその木に記録します。</p>
       </div>
 
+      <WorkspaceSection flush={flush} toast={toast} />
+
       <ServerSection state={state} update={update} config={config} setConfig={setConfig} toast={toast} />
 
       <div className="sec">
@@ -154,6 +182,25 @@ export default function SettingsView({ state, update, config, setConfig, toast }
           )}
         </div>
         <FileButton label="設定ファイル（JSON）を読み込む" accept=".json,application/json" onFile={onConfig} testId="config-file" />
+        {askWorkspace && (
+          <div className="alert danger" role="alert" data-testid="workspace-ask">
+            <span>
+              読み込んだ設定の業務「{askWorkspace.job?.title || '（名前なし）'}」は、今の業務「{config?.job?.title || '（名前なし）'}」と違います。この端末には今の業務の木が
+              {state.trees.length}本あります。
+            </span>
+            <div className="acts">
+              <button type="button" className="btn" onClick={() => loadAsNew(askWorkspace)} data-testid="workspace-new">
+                別の業務として使う（今の業務の入力内容はそのまま残す）
+              </button>
+              <button type="button" className="btn" onClick={() => loadHere(askWorkspace)} data-testid="workspace-here">
+                今の業務の設定を入れ替える
+              </button>
+              <button type="button" className="btn" onClick={() => setAskWorkspace(null)}>
+                やめる
+              </button>
+            </div>
+          </div>
+        )}
         {configErrors.length > 0 && (
           <div className="alert danger" role="alert">
             <b>設定ファイルの誤り（{configErrors.length}件）</b>

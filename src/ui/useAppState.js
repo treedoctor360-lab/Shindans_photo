@@ -137,5 +137,5 @@ export function useAppState() {
     };
   }, [ready, send]);
 
-  return { state, update, config, setConfig, ready, saveError, send, sendStatus };
+  return { state, update, config, setConfig, ready, saveError, send, sendStatus, flush };
 }
