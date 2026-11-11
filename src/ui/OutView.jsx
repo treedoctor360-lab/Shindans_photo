@@ -6,6 +6,7 @@ import { dbValues, exportDb } from '../excel/dbExport.js';
 import { FULL_NOTE, cellText, columns, fullNoteOf } from '../excel/listColumns.js';
 import { buildEntryList, buildInsertList, insertRows } from '../excel/entryList.js';
 import { buildPages, exportFieldSheet } from '../excel/fieldSheet.js';
+import { exportListSheet, listPages } from '../excel/listSheet.js';
 import { exportInitialBook } from '../excel/initialExport.js';
 import { exportKarte } from '../excel/karteExport.js';
 import { gradeWriteBack, initialsForBook, karteRecords } from '../store/initial.js';
@@ -83,6 +84,20 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
       setBusy('');
     }
   };
+
+  // 一覧型の野帳（設定 listSheet。原本を使わず一から作る。今の公園・路線）
+  const onListSheet = () =>
+    run('野帳の出力', async () => {
+      const pages = listPages(groupTrees, cfg);
+      const r = await exportListSheet(pages, cfg);
+      if (r.errors.length) return setCheck({ title: '野帳の出力検査', errors: r.errors });
+      const sheet = cfg.dbFormat.sheets.find((s) => s.type === groupTrees[0]?.siteType);
+      download(`野帳_${safeName(groupTrees[0]?.[sheet?.identify]) || '野帳'}_${yymmdd()}.xlsx`, r.buffer);
+      toast(
+        `野帳を出力しました（${pages.length}枚・${groupTrees.length}本。全件照合OK）` +
+          (r.long.length ? `。文字を小さくしても枠に収まらない欄：${r.long.map((x) => `${x.treeNo}の${x.label}`).join('、')}（短くするか、印刷して確かめてください）` : ''),
+      );
+    });
 
   const onField = () =>
     run('野帳の出力', async () => {
@@ -258,12 +273,25 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
 
       <div className="sec">
         <h2>Excel ファイルに出力</h2>
-        <button type="button" className="btn fill big" disabled={!!busy} onClick={onField} data-testid="export-field">
-          {busy === '野帳の出力' ? '作成中…' : `野帳（Excel）を出力：${gname}`}
-        </button>
-        <p className="hint">
-          野帳の原本に書き込みます（確定していない木も含めて、入力どおりに出します）。選んだ項目は○で囲みます（白黒印刷でも分かります）。未入力の木も番号・樹種が入るので、紙の野帳としても印刷できます。保存する前に、書き出したファイルを読み直して全件照合します。
-        </p>
+        {cfg.listSheet ? (
+          <>
+            <button type="button" className="btn fill big" disabled={!!busy || !groupTrees.length} onClick={onListSheet} data-testid="export-list-sheet">
+              {busy === '野帳の出力' ? '作成中…' : `野帳（${cfg.listSheet.paper || 'A3'}）を出力：${gname}`}
+            </button>
+            <p className="hint">
+              1本1行の野帳を作ります（確定していない木も含めて、入力どおりに出します）。{cfg.listSheet.rowsPerSheet}本で次の用紙へ。保存する前に、書き出したファイルを読み直して全件照合します。
+            </p>
+          </>
+        ) : (
+          <>
+            <button type="button" className="btn fill big" disabled={!!busy} onClick={onField} data-testid="export-field">
+              {busy === '野帳の出力' ? '作成中…' : `野帳（Excel）を出力：${gname}`}
+            </button>
+            <p className="hint">
+              野帳の原本に書き込みます（確定していない木も含めて、入力どおりに出します）。選んだ項目は○で囲みます（白黒印刷でも分かります）。未入力の木も番号・樹種が入るので、紙の野帳としても印刷できます。保存する前に、書き出したファイルを読み直して全件照合します。
+            </p>
+          </>
+        )}
         <button type="button" className="btn big" disabled={!!busy || !dbCount} onClick={onDb} data-testid="export-db">
           {busy === '一覧表の出力'
             ? '作成中…'

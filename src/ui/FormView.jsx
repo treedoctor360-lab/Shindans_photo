@@ -333,11 +333,31 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
 
   // 詳しい診断の要否（判定の区切りか、initial.afterCheck の項目の次に出す）
   //  点検の並びに出すときは、点検項目と同じ見た目（1行に名前と選択肢）
+  //  details の when が initialNeeded の項目（例 理由）は、その条件のときに下に出す
   const initialRow = (
-    <div className={cfg.initial.afterCheck ? 'check' : 'row'}>
-      <span className="lbl">{cfg.initial.label}</span>
-      <Seg field="initialNeeded" opts={cfg.options.initialNeeded} value={t.initialNeeded} onPress={press} />
-    </div>
+    <>
+      <div className={cfg.initial.afterCheck ? 'check' : 'row'}>
+        <span className="lbl">{cfg.initial.label}</span>
+        <Seg field="initialNeeded" opts={cfg.options.initialNeeded} value={t.initialNeeded} onPress={press} />
+      </div>
+      {cfg.details
+        .filter((d) => d.when.field === 'initialNeeded' && isOn('initialNeeded', d.when.eq))
+        .map((d) => (
+          <div className="row" key={d.field} style={{ padding: '6px 0' }}>
+            <label className="lbl" htmlFor={`f-${d.field}`}>
+              {d.label}
+            </label>
+            <input
+              type="text"
+              id={`f-${d.field}`}
+              inputMode={d.numeric ? 'decimal' : undefined}
+              value={t[d.field] || ''}
+              onChange={(e) => setField(d.field, e.target.value)}
+              onBlur={() => blurField(d.field)}
+            />
+          </div>
+        ))}
+    </>
   );
   const felling = cfg.rules.filter((r) => r.type === 'treatRequires').filter((r) => new RegExp(r.pattern).test(treat));
 
