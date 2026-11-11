@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import cfgJson from './fixtures/sample-config.json';
 import { validateConfig } from '../src/core/config.js';
 import { blankTree } from '../src/core/tree.js';
+import { putMeasure } from '../src/core/noteMeasures.js';
 import { checkListSheet, exportListSheet, listCellText, listPages, listRemarks } from '../src/excel/listSheet.js';
 
 const base = structuredClone(cfgJson);
@@ -67,6 +68,15 @@ describe('一覧型の野帳', () => {
     expect(listRemarks(t, cfg)).toBe('架空：幹 H=1.2m／調査：根株の打診音／自由な記録／2行目');
     // 「無」に戻した項目の詳細は出さない
     expect(listRemarks({ ...t, [k1]: '無' }, cfg)).toBe('調査：根株の打診音／自由な記録／2行目');
+  });
+
+  it('備考：部位・寸法（checks の measure）はその点検項目のすぐ後ろ、ほかの寸法は特記事項の後ろ。行の頭の「・」は付けない', () => {
+    const c2 = { ...cfg, checks: cfg.checks.map((c) => (c.key === k1 ? { ...c, measure: { kinds: ['decay'], eq: yes } } : c)) };
+    expect(validateConfig(c2).errors).toEqual([]);
+    let t = T(1, { [k1]: yes, whereX: '幹', initialNeeded: base.initial.yes, whyX: '理由', notes: '・自由な記録' });
+    t = putMeasure(t, c2, { kind: 'decay', place: '幹', values: { height: { a: '1' } } }, -1);
+    t = putMeasure(t, c2, { kind: 'tap', place: '根株', values: { height: { a: '0.5' } } }, -1);
+    expect(listRemarks(t, c2)).toBe('架空：幹／幹の腐朽：地上1m／調査：理由／自由な記録／根株の打診音異常：地上0.5m');
   });
 
   it('用紙：路線が変わったら新しい用紙、1枚の本数を超えたら次の用紙。診断日は違う日が混じれば「ほか」', () => {
