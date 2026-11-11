@@ -140,6 +140,15 @@ export function validateConfig(cfg) {
   if (cfg.noteMeasures != null) validateNoteMeasures(cfg.noteMeasures, need); // 特記事項に足す寸法の1行（省略可）
   if (cfg.wording != null) validateWording(cfg.wording, need); // 表記の統一（省略可）
   if (cfg.extraFields != null) validateExtraFields(cfg.extraFields, cfg, need); // 計測に足す欄（省略可）
+  // 点検項目の並びの指定（省略可）：place「measure」は計測の区切り（枝長の前）に出す、always は枯死の木でも選ぶ
+  if (isArr(cfg.checks))
+    cfg.checks.forEach((c) => {
+      need(c?.place == null || c.place === 'measure', `checks の ${c?.key} の place は "measure" だけ使えます`);
+      need(c?.always == null || typeof c.always === 'boolean', `checks の ${c?.key} の always は true か false にしてください`);
+    });
+  // 詳しい診断の要否を、点検項目の並びの中（その項目の次）に出す（省略可）
+  if (cfg.initial?.afterCheck != null)
+    need(isArr(cfg.checks) && cfg.checks.some((c) => c?.key === cfg.initial.afterCheck && c.place !== 'measure'), 'initial.afterCheck は、計測の区切りに出さない点検項目のキーにしてください');
   if (cfg.numbering != null) validateNumbering(cfg.numbering, need); // 追加した木に番号を順に振る（省略可）
   if (cfg.addGroups != null) validateAddGroups(cfg.addGroups, cfg, need); // まとまり（公園・路線）を現地で足す（省略可）
 

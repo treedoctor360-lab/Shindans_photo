@@ -7,8 +7,9 @@ export const isDead = (tree, cfg) => !!tree.vigor && tree.vigor === cfg.deadVigo
 //  枯死の木は原則空欄。ただし「緊急の弱点を入力する」を押した木（deadOverride）は入力できる
 export const isLocked = (tree, cfg) => isDead(tree, cfg) && !tree.deadOverride;
 
-// 点検項目のキーか
-export const isCheckKey = (key, cfg) => cfg.checks.some((c) => c.key === key);
+// 枯死の木で「原則空欄」にする点検項目のキーか
+//  点検項目の always: true（例 改善処置の要否）は、枯死の木でも選ぶので含めない
+export const isCheckKey = (key, cfg) => cfg.checks.some((c) => c.key === key && !c.always);
 
 // 条件 { field, eq } に当てはまるか
 //  原則空欄の木では、点検項目についての条件は当てはまらないものとする

@@ -1,5 +1,5 @@
 // 入力画面：1本ずつ、紙の野帳と同じ順に入力する
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { branchRatioRaw, branchRatioText, girthOf, heightRatioOf } from '../core/calc.js';
 import { groupLabel, treesOfGroup } from '../core/groups.js';
 import { dbNoteOf, freeNoteLines, isChipLine, noteLines, toggleChip } from '../core/notes.js';
@@ -176,6 +176,9 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
   const readOnly = t.source === 'ledger' || officeView || !!t.deleted;
   const surveyor = (state.user?.role || 'surveyor') !== 'office';
   const locked = isLocked(t, cfg);
+  // 点検項目の並び（設定 checks の place・initial.afterCheck で野帳の並びに合わせる）
+  const measureChecks = cfg.checks.filter((c) => c.place === 'measure');
+  const mainChecks = cfg.checks.filter((c) => c.place !== 'measure');
   // 入力済みの木を直したら、送り直しの印を付ける
   const change = (fn, opt) => update((s) => updateTree({ ...s, currentId: t.id, group }, t.id, (x) => touched(fn(x))), opt);
   const setField = (k, v) => change((x) => ({ ...x, [k]: v, ...(k === 'dbNote' ? { dbNoteManual: true } : {}) }));
@@ -282,6 +285,60 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
   const gradeLocked = t.initialNeeded === cfg.initial.yes;
   const missing = readOnly ? [] : missingFields(t, cfg);
   const isOn = (k, v) => t[k] === v;
+
+  // 点検項目1つ（選択肢と、「有」のとき追加で入れる項目）。枯死の木では原則選べない（always の項目は選べる）
+  const checkRow = (c) => {
+    const details = cfg.details.filter((d) => d.when.field === c.key);
+    return (
+      <fieldset key={c.key} disabled={locked && !c.always}>
+        <div className="check">
+          <span className="lbl">{c.label}</span>
+          <Seg field={c.key} opts={cfg.options[c.key]} value={t[c.key]} onPress={press} />
+        </div>
+        {details
+          .filter((d) => isOn(c.key, d.when.eq))
+          .map((d) => (
+            <div className="row" key={d.field} style={{ padding: '6px 0' }}>
+              <label className="lbl" htmlFor={`f-${d.field}`}>
+                {d.label}
+              </label>
+              {d.chips && (
+                <div className="chips">
+                  {d.chips.map((w) => (
+                    <button
+                      key={w}
+                      type="button"
+                      className={`chip${strongWords.includes(w) ? ' strong' : ''}${t[d.field] === w ? ' on' : ''}`}
+                      onClick={() => change((x) => ({ ...x, [d.field]: x[d.field] === w ? '' : w }))}
+                    >
+                      {w}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <input
+                type="text"
+                inputMode={d.numeric ? 'numeric' : undefined} // 数の欄（例：枯れ枝の本数）は数字のキーボードを出す
+                id={`f-${d.field}`}
+                className="num"
+                value={t[d.field] || ''}
+                onChange={(e) => setField(d.field, e.target.value)}
+                onBlur={() => blurField(d.field)}
+              />
+            </div>
+          ))}
+      </fieldset>
+    );
+  };
+
+  // 詳しい診断の要否（判定の区切りか、initial.afterCheck の項目の次に出す）
+  //  点検の並びに出すときは、点検項目と同じ見た目（1行に名前と選択肢）
+  const initialRow = (
+    <div className={cfg.initial.afterCheck ? 'check' : 'row'}>
+      <span className="lbl">{cfg.initial.label}</span>
+      <Seg field="initialNeeded" opts={cfg.options.initialNeeded} value={t.initialNeeded} onPress={press} />
+    </div>
+  );
   const felling = cfg.rules.filter((r) => r.type === 'treatRequires').filter((r) => new RegExp(r.pattern).test(treat));
 
   return (
@@ -492,27 +549,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               )}
             </div>
           </div>
-          <div className="grid2">
-            <div className="row">
-              <label className="lbl" htmlFor="f-bl">
-                枝長
-              </label>
-              <div className="unit">
-                <input type="text" inputMode="decimal" id="f-bl" className="num" value={t.branchLen} onChange={(e) => setField('branchLen', e.target.value)} onBlur={() => blurField('branchLen')} />
-                <span>cm</span>
-              </div>
-            </div>
-            <div className="row">
-              <label className="lbl" htmlFor="f-bd">
-                枝径
-              </label>
-              <div className="unit">
-                <input type="text" inputMode="decimal" id="f-bd" className="num" value={t.branchDia} onChange={(e) => setField('branchDia', e.target.value)} onBlur={() => blurField('branchDia')} />
-                <span>cm</span>
-              </div>
-            </div>
-          </div>
-          {/* 設定で足した計測の欄（extraFields。例 枝張り・枝下高）。2つずつ横に並べる */}
+          {/* 設定で足した計測の欄（extraFields。例 枝張り・枝下高）。2つずつ横に並べる。枝長・枝径の前に出す（野帳の並び） */}
           {(cfg.extraFields || []).length > 0 && (
             <div className="grid2" data-testid="extra-fields">
               {cfg.extraFields.map((f) => (
@@ -536,6 +573,28 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               ))}
             </div>
           )}
+          {/* 計測の区切りに出す点検項目（checks の place: "measure"。例 傾斜） */}
+          {measureChecks.map(checkRow)}
+          <div className="grid2">
+            <div className="row">
+              <label className="lbl" htmlFor="f-bl">
+                枝長
+              </label>
+              <div className="unit">
+                <input type="text" inputMode="decimal" id="f-bl" className="num" value={t.branchLen} onChange={(e) => setField('branchLen', e.target.value)} onBlur={() => blurField('branchLen')} />
+                <span>cm</span>
+              </div>
+            </div>
+            <div className="row">
+              <label className="lbl" htmlFor="f-bd">
+                枝径
+              </label>
+              <div className="unit">
+                <input type="text" inputMode="decimal" id="f-bd" className="num" value={t.branchDia} onChange={(e) => setField('branchDia', e.target.value)} onBlur={() => blurField('branchDia')} />
+                <span>cm</span>
+              </div>
+            </div>
+          </div>
           <dl className="calc" data-testid="calc">
             <div>
               <dt>幹周(記録値)</dt>
@@ -577,50 +636,14 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
             >
               まだ選んでいない点検項目をすべて「{cfg.noneValue || '無'}」にする
             </button>
-            {cfg.checks.map((c) => {
-              const details = cfg.details.filter((d) => d.when.field === c.key);
-              return (
-                <div key={c.key}>
-                  <div className="check">
-                    <span className="lbl">{c.label}</span>
-                    <Seg field={c.key} opts={cfg.options[c.key]} value={t[c.key]} onPress={press} />
-                  </div>
-                  {details
-                    .filter((d) => isOn(c.key, d.when.eq))
-                    .map((d) => (
-                      <div className="row" key={d.field} style={{ padding: '6px 0' }}>
-                        <label className="lbl" htmlFor={`f-${d.field}`}>
-                          {d.label}
-                        </label>
-                        {d.chips && (
-                          <div className="chips">
-                            {d.chips.map((w) => (
-                              <button
-                                key={w}
-                                type="button"
-                                className={`chip${strongWords.includes(w) ? ' strong' : ''}${t[d.field] === w ? ' on' : ''}`}
-                                onClick={() => change((x) => ({ ...x, [d.field]: x[d.field] === w ? '' : w }))}
-                              >
-                                {w}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        <input
-                          type="text"
-                          inputMode={d.numeric ? 'numeric' : undefined} // 数の欄（例：枯れ枝の本数）は数字のキーボードを出す
-                          id={`f-${d.field}`}
-                          className="num"
-                          value={t[d.field] || ''}
-                          onChange={(e) => setField(d.field, e.target.value)}
-                          onBlur={() => blurField(d.field)}
-                        />
-                      </div>
-                    ))}
-                </div>
-              );
-            })}
           </fieldset>
+          {mainChecks.map((c) => (
+            <Fragment key={c.key}>
+              {checkRow(c)}
+              {/* 詳しい診断の要否を点検項目の並びの中に出す（initial.afterCheck。野帳の並び） */}
+              {cfg.initial.afterCheck === c.key && initialRow}
+            </Fragment>
+          ))}
           {/* 特記事項は枯死の木でも書ける（点検項目だけを原則空欄にする） */}
           <div className="row" style={{ paddingTop: 8 }}>
             <label className="lbl" htmlFor="f-notes">
@@ -673,12 +696,11 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
           </div>
         </div>
 
-        <div className="sec">
-          <h2>判定</h2>
-          <div className="row">
-            <span className="lbl">{cfg.initial.label}</span>
-            <Seg field="initialNeeded" opts={cfg.options.initialNeeded} value={t.initialNeeded} onPress={press} />
-          </div>
+        {/* 判定：詳しい診断の要否を点検の並びに出し、健全度も付けない業務では区切りごと出さない */}
+        {!(cfg.noGrade && cfg.initial.afterCheck) && (
+          <div className="sec">
+            <h2>判定</h2>
+            {!cfg.initial.afterCheck && initialRow}
           {/* noGrade：健全度を現場で付けない業務では欄を出さない */}
           {!cfg.noGrade && (
             <div className="row" data-testid="grade-row">
@@ -688,8 +710,11 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               {gradeLocked && <div className="lock">{cfg.initial.label}が「{cfg.initial.yes}」なので、{cfg.gradeLabel}は空欄にします。</div>}
             </div>
           )}
-        </div>
+          </div>
+        )}
 
+        {/* 処置：選択肢のない業務では区切りごと出さない */}
+        {(cfg.treat.prune.length > 0 || cfg.treat.other.length > 0) && (
         <div className="sec">
           <h2>処置</h2>
           {[
@@ -725,6 +750,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
             </div>
           ))}
         </div>
+        )}
 
         <Alerts list={otherAlerts} onAct={onAct} asking={asking} onAsk={(a, act) => setAsking({ alertId: a.id, act })} onCancel={() => setAsking(null)} />
 

@@ -5,6 +5,7 @@ import { toHalf } from '../core/text.js';
 // 一覧表形式の列（[列のキー, 見出し]…）。一覧表と同じ並び（貼り付けたり見比べたりしやすいように）
 //  台帳を読み込んだときの見出しの並び（ledgerInfo.columns）があれば、その並びと見出しの文字を使う。
 //  なければ設定の列の並び（dbFormat.columns）で、ほかのシートの種類の場所の項目と、どの木も空の場所の項目は出さない
+//  見出しは、計測に足した欄（extraFields）・「有」のとき入れる項目（details）・点検項目は設定の名前、ほかは下の表
 export function columns(cfg, siteType, ledgerColumns, trees) {
   const f = cfg.dbFormat;
   const label = {
@@ -13,13 +14,20 @@ export function columns(cfg, siteType, ledgerColumns, trees) {
     date: '調査日', inspector: '調査者', species: '樹種', height: '樹高', girth: '幹周', heightRatio: '樹高/幹径', branchRatio: '枝長/枝径',
     vigor: cfg.vigorLabel, note: '特記事項', initialNeeded: cfg.initial.label, grade: cfg.gradeLabel, treat: '処置', photo: '写真の有無',
   };
+  label.branchLen = '枝長(cm)';
+  label.branchDia = '枝径(cm)';
   cfg.checks.forEach((c) => (label[c.key] = c.label));
+  (cfg.extraFields || []).forEach((x) => (label[x.key] = x.unit ? `${x.label}(${x.unit})` : x.label)); // 計測に足した欄
+  cfg.details.forEach((d) => (label[d.field] = d.label)); // 「有」のとき追加で入れる項目
   cfg.rules.filter((r) => r.type === 'treatRequires').forEach((r) => (label[r.field] = r.label));
   const shows = (k) => k === f.serialKey || k === 'treeNo' || f.writeKeys.includes(k) || f.infoKeys.includes(k);
   if (ledgerColumns?.length) return ledgerColumns.filter((c) => shows(c.key)).map((c) => [c.key, c.header || label[c.key] || c.key]);
   const others = f.sheets.filter((sh) => sh.type !== siteType).flatMap((sh) => [sh.identify, sh.code]);
+  // 通し番号は一覧表（台帳）の行の印。台帳の行の木が1本もなければ出さない（台帳を使わず現地で足した木だけの業務）
+  const noLedger = !trees.some((t) => t.ledgerRow);
   return Object.keys(f.columns)
     .filter(shows)
+    .filter((k) => !(noLedger && k === f.serialKey))
     .filter((k) => !others.includes(k))
     .filter((k) => !f.infoKeys.includes(k) || trees.some((t) => t[k]))
     .map((k) => [k, label[k] || k]);
