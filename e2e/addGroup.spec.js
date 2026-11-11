@@ -73,3 +73,35 @@ test('台帳なしで路線を足し、1から番号を振りながら入力で�
   await page.locator('[data-testid=tree-cards] button', { hasText: 'テストノキ' }).first().click();
   await expect(page.locator('#f-x-spread')).toHaveValue('3.5'); // 足した欄の値も保存されている
 });
+
+test('同じ路線名でも路線番号が違えば、別の路線として足せる（dbFormat.sheets の identifyAlso）', async ({ page }) => {
+  const cfg = JSON.parse(fs.readFileSync('test/fixtures/sample-config.json', 'utf8'));
+  cfg.numbering = { start: 1, carry: ['species'] };
+  cfg.addGroups = { siteType: 'street', label: '路線', fields: [{ key: 'routeName', label: '路線名' }, { key: 'routeNo', label: '路線番号' }] };
+  cfg.dbFormat.sheets = cfg.dbFormat.sheets.map((x) => (x.type === 'street' ? { ...x, identifyAlso: ['routeNo'] } : x));
+  fs.mkdirSync('test-results', { recursive: true });
+  fs.writeFileSync('test-results/add-group-also.json', JSON.stringify(cfg));
+
+  await page.goto('./');
+  await page.fill('#s-date', '2099-05-06');
+  await page.fill('#s-insp', '試験 二郎(資格)');
+  await page.setInputFiles('[data-testid=config-file]', 'test-results/add-group-also.json');
+  await page.click('.tab:has-text("一覧")');
+  await page.fill('#ag-routeName', '試験');
+  await page.fill('#ag-routeNo', '223');
+  await page.click('[data-testid=add-group-submit]');
+  await expect(page.locator('#f-treeNo')).toHaveValue('1');
+  await page.click('[data-testid=save-to-list]');
+  await page.click('text=未入力のまま保存する');
+
+  // 同じ路線名・別の路線番号 → 別の路線（1から）
+  await page.click('[data-testid=add-group-open]');
+  await page.fill('#ag-routeName', '試験');
+  await page.fill('#ag-routeNo', '318');
+  await page.click('[data-testid=add-group-submit]');
+  await expect(page.locator('#f-treeNo')).toHaveValue('1');
+  await expect(page.locator('.toast')).not.toContainText('同じ名前');
+  await page.click('[data-testid=save-to-list]');
+  await page.click('text=未入力のまま保存する');
+  await expect(page.locator('#s-group option')).toHaveText([/223 試験/, /318 試験/]);
+});
