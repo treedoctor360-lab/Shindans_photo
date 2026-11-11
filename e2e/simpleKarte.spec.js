@@ -57,3 +57,26 @@ test('様式を読み込み、入力した木を簡易診断のカルテ（1本1
   expect(ws.getCell('E8').value).toBe('地上1m 幹');
   expect(cfg.karte.fileLabel).toBe('架空カルテ');
 });
+
+test('入力画面の「カルテで見る」で、入力中の内容をカルテの形で見られる（選択肢の一覧のシートは出さない）', async ({ page }) => {
+  await files();
+  await page.goto('./');
+  await page.setInputFiles('[data-testid=config-file]', 'test-results/simple-karte-config.json');
+  await expect(page.locator('[data-testid=config-status] .ok')).toBeVisible();
+  await page.setInputFiles('[data-testid=karte-template-file]', 'test-results/simple-karte-template.xlsx');
+  await expect(page.locator('[data-testid=karte-template-status] .ok')).toBeVisible();
+  await page.click('.tab:has-text("一覧")');
+  await page.fill('#ag-routeName', '試験の新しい通り');
+  await page.click('[data-testid=add-group-submit]');
+  await page.fill('#f-species', 'テストノキ');
+  await page.click('[data-group=decay] [data-v="有"]');
+  // 保存しないまま開く
+  await page.click('[data-testid=karte-view-open]');
+  const kv = page.locator('[data-testid=karte-view]');
+  await expect(kv).toContainText('カルテ（見るだけ）');
+  await expect(kv.locator('[data-cell="4:3"]')).toHaveText('テストノキ');
+  await expect(kv.locator('[data-cell="8:3"]')).toHaveText('□無  ■有');
+  await expect(kv.locator('[data-kv-sheet]')).toHaveCount(0); // カルテのシートは1枚だけ（選択肢の一覧のシートは出さない）
+  await page.click('[data-testid=kv-close]');
+  await expect(kv).toHaveCount(0);
+});

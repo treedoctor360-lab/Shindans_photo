@@ -5,6 +5,7 @@ import { groupLabel, treesOfGroup } from '../core/groups.js';
 import { dbNoteOf, freeNoteLines, isChipLine, noteLines, toggleChip } from '../core/notes.js';
 import { freeNotesOf, toMeasuresV2 } from '../core/noteMeasures.js';
 import NoteMeasures from './NoteMeasures.jsx';
+import KarteView from './KarteView.jsx';
 import SessionStamp from './SessionStamp.jsx';
 import { photoFlag, photoPlan } from '../core/photo.js';
 import { alertsOf, missingFields } from '../core/rules.js';
@@ -136,6 +137,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
   const [renum, setRenum] = useState(null); // 「現地の番号に変える」の入力中：{ no, drop: [特記から消す行] }
   const [askGirth, setAskGirth] = useState(''); // 値の入った幹周を減らすか確かめ中の木の id
   const [askAfter, setAskAfter] = useState('next'); // 未入力を確かめ中の保存の行き先
+  const [showKarte, setShowKarte] = useState(false); // カルテで見る（簡易診断のカルテ。設定 karte）
 
   if (!cfg || !state.trees.length) {
     return (
@@ -777,6 +779,16 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
         )}
 
         <Alerts list={otherAlerts} onAct={onAct} asking={asking} onAsk={(a, act) => setAsking({ alertId: a.id, act })} onCancel={() => setAsking(null)} />
+
+        {/* 今の入力内容をカルテ（設定 karte）の形で見る（入力中でも。ダウンロードしなくても確かめられる） */}
+        {cfg.karte && (
+          <div className="acts">
+            <button type="button" className="btn" onClick={() => setShowKarte(true)} data-testid="karte-view-open">
+              カルテで見る
+            </button>
+          </div>
+        )}
+        {showKarte && <KarteView state={state} cfg={cfg} tree={t} onClose={() => setShowKarte(false)} />}
 
         <div className="sec">
           <h2>写真（デジカメで撮影）</h2>
