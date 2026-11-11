@@ -119,7 +119,8 @@ export function nextTreeNo(trees, cfg) {
 //  values … 設定の fields の項目ごとの値（例 { routeName, routeNo }）。まとまりの名前の項目は必須
 //  その中の1本目の木を作って開く（まとまりは木から作られるので、木がないまとまりは作れない）
 // 返す形：{ state, error（足せなかった理由。足せたら ''）, exists（同じ名前のまとまりがあり、そちらを開いた） }
-export function addGroup(state, cfg, values, now = Date.now()) {
+//  firstTree … 1本目の木に入れておく値（一覧から選んだまとまりの樹種など。例 { species }）
+export function addGroup(state, cfg, values, now = Date.now(), firstTree = {}) {
   const ag = cfg.addGroups;
   const sheet = ag && cfg.dbFormat.sheets.find((x) => x.type === ag.siteType);
   if (!sheet) return { state, error: 'この設定では足せません', exists: false };
@@ -134,6 +135,7 @@ export function addGroup(state, cfg, values, now = Date.now()) {
   const uid = `${state.server?.deviceId || 'dev'}-${Number(now).toString(36)}`;
   const nt = blankTree({ id: `new:${now}`, uid, status: cfg.newTreeStatus ?? '', ...info });
   if (cfg.numbering) nt.treeNo = nextTreeNo([], cfg);
+  if (firstTree.species) nt.species = firstTree.species;
   return { state: { ...state, trees: [...state.trees, nt], group: key, area: '', currentId: nt.id, view: 'form' }, error: '', exists: false };
 }
 

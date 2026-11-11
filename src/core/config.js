@@ -203,6 +203,19 @@ function validateAddGroups(a, cfg, need) {
   need(a.fields.some((f) => f.key === sheet.identify), `addGroups.fields に、まとまりの名前の項目（${sheet.identify}）が必要です`);
   const known = [sheet.identify, sheet.code, ...(isArr(cfg.dbFormat.infoKeys) ? cfg.dbFormat.infoKeys : [])];
   a.fields.forEach((f) => need(known.includes(f.key), `addGroups.fields の ${f.key} は、dbFormat.infoKeys にある項目にしてください`));
+  // 一覧から選ぶまとまり（省略可）：[{ label, values: { fields の key: 値 }, tree?: { species }, count? }]
+  if (a.presets != null) {
+    const keys = a.fields.map((f) => f.key);
+    if (!need(isArr(a.presets), 'addGroups.presets（一覧から選ぶまとまり）は一覧にしてください')) return;
+    a.presets.forEach((p, i) => {
+      need(isObj(p) && isStr(p.label) && isObj(p.values), `addGroups.presets[${i}] は { label, values } にしてください`);
+      if (!isObj(p?.values)) return;
+      Object.keys(p.values).forEach((k) => need(keys.includes(k) && typeof p.values[k] === 'string', `addGroups.presets[${i}].values の ${k} は、addGroups.fields の項目の文字にしてください`));
+      need(isStr(p.values[sheet.identify]), `addGroups.presets[${i}].values に、まとまりの名前（${sheet.identify}）が必要です`);
+      need(p.tree == null || (isObj(p.tree) && Object.keys(p.tree).every((k) => k === 'species' && typeof p.tree[k] === 'string')), `addGroups.presets[${i}].tree は { species } だけ書けます`);
+      need(p.count == null || (Number.isInteger(p.count) && p.count >= 0), `addGroups.presets[${i}].count（本数）は 0 以上の整数にしてください`);
+    });
+  }
 }
 
 // 台帳・一覧表の書式（見出しの探し方など）
