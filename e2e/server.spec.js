@@ -110,3 +110,31 @@ test('サーバーに置くのは事務の端末だけ。置く前に、何を�
   await expect(page.locator('[data-testid=server-put-ask]')).toHaveCount(0);
   await expect(page.locator('[data-testid=server-put]')).toBeVisible();
 });
+
+test('サーバーの設定が別の業務なら、木のある業務には受け取らない（設定・木を混ぜない）', async ({ browser }) => {
+  const gas = makeFakeGas();
+  const other = JSON.parse(fs.readFileSync('test/fixtures/sample-config.json', 'utf8'));
+  other.job = { ...(other.job || {}), title: '架空の別の業務' };
+  const office = await (await browser.newContext()).newPage();
+  await connect(office, gas);
+  await office.goto('./');
+  await office.setInputFiles('[data-testid=config-file]', tmp('s-other-config.json', new TextEncoder().encode(JSON.stringify(other))));
+  await expect(office.locator('[data-testid=config-status] .ok')).toBeVisible();
+  await setServer(office);
+  await office.click('[data-testid=role-office]');
+  await office.click('[data-testid=server-put]');
+  await office.click('[data-testid=server-put-ok]');
+  await expect(office.locator('.toast')).toContainText('サーバーに置きました');
+
+  // スマホ：今の業務に木がある
+  const phone = await (await browser.newContext()).newPage();
+  await connect(phone, gas);
+  await phone.goto('./');
+  await phone.setInputFiles('[data-testid=config-file]', 'test/fixtures/sample-config.json');
+  await phone.setInputFiles('[data-testid=ledger-file]', tmp('s-ledger2.xlsx', await makeLedger()));
+  await expect(phone.locator('[data-testid=ledger-status] .ok')).toBeVisible();
+  await setServer(phone);
+  await phone.click('[data-testid=server-get]');
+  await expect(phone.locator('.toast')).toContainText('別の業務（架空の別の業務）');
+  await expect(phone.locator('[data-testid=config-status]')).not.toContainText('架空の別の業務');
+});
