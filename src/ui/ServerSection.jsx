@@ -1,7 +1,7 @@
 // 設定画面の「サーバー」欄：URL と合言葉、接続の確認、設定・原本・台帳の受け渡し
 import { useState } from 'react';
-import { idbGet } from '../store/idb.js';
-import { rememberTitle } from '../store/workspace.js';
+import { idbGet, idbPut } from '../store/idb.js';
+import { needsNewWorkspace, rememberTitle } from '../store/workspace.js';
 import { bookCount } from '../store/initial.js';
 import { applyLedger, importInitialBook, loadConfigText, readKarteTemplateFile, readLedgerFile, saveTemplate } from '../store/state.js';
 import { karteConfs } from '../excel/karteExport.js';
@@ -70,8 +70,14 @@ export default function ServerSection({ state, update, config, setConfig, toast 
       let cfg = config;
       const c = await getFile(sv, 'config');
       if (c) {
-        const r = await loadConfigText(new TextDecoder().decode(c.buffer), config);
+        const r = await loadConfigText(new TextDecoder().decode(c.buffer), config, { save: false });
         if (r.errors.length) throw new Error(`サーバーの設定ファイルに誤りがあります：${r.errors[0]}`);
+        // この端末の今の業務に別の業務の木があれば、入れ替えずに止める（別の業務の設定・木が混ざらないように）
+        if (needsNewWorkspace(state, config, r.config))
+          throw new Error(
+            `サーバーの設定は別の業務（${r.config.job?.title || '名前なし'}）です。この端末の今の業務（${config?.job?.title || '名前なし'}）には木があるので受け取りませんでした。設定ファイルを読み込んで「別の業務として使う」を選び、その業務でサーバーの URL・合言葉を入れてから受け取ってください`,
+          );
+        await idbPut('config', r.config); // 確かめてから保存する
         cfg = r.config;
         await rememberTitle(cfg.job?.title); // 業務の一覧に出す名前
         setConfig(cfg);
