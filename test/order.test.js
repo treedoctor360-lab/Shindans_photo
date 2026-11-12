@@ -18,18 +18,19 @@ const nos = (s) => s.trees.map((t) => t.treeNo || t.uid);
 const state = (trees, o = {}) => ({ ...initialState(), trees, group: groupKey(trees[0], cfg), currentId: trees[0].id, session: { date: '2099-05-06', inspector: '試験 二郎' }, server: { deviceId: 'd1' }, ...o });
 
 describe('追加した木の並び', () => {
-  it('この木の次に追加すると、その木のすぐ後ろ。同じ木の次に続けて追加すれば追加した順、追加した木の次はその後ろ', () => {
+  it('この木の次に追加すると、その木のすぐ後ろ（その木の次にあった追加の木は、新しい木の次へ）。追加した木の次はその後ろ', () => {
     let s = state([P('A1'), P('A2'), P('A3')]);
     s = addTree(s, cfg, { afterId: 'A1', now: 1 });
     s = { ...s, trees: s.trees.map((t) => (t.id === s.currentId ? { ...t, treeNo: 'N1' } : t)) };
     s = addTree(s, cfg, { afterId: 'A1', now: 2 });
     s = { ...s, trees: s.trees.map((t) => (t.id === s.currentId ? { ...t, treeNo: 'N2' } : t)) };
-    expect(nos(s)).toEqual(['A1', 'N1', 'N2', 'A2', 'A3']);
+    expect(nos(s)).toEqual(['A1', 'N2', 'N1', 'A2', 'A3']);
     expect(s.trees[1]).toMatchObject({ after: simpleKey(s.trees[0], cfg), parkName: '架空公園' });
-    // 保存してもう1本追加：今の木（N2）の次
+    expect(s.trees[2]).toMatchObject({ after: simpleKey(s.trees[1], cfg) });
+    // 保存してもう1本追加：今の木（N1）の次
     s = { ...s, currentId: s.trees[2].id };
     s = saveTree(s, cfg, { force: true, after: 'add', now: new Date(3).toISOString() }).state;
-    expect(nos(s)).toEqual(['A1', 'N1', 'N2', 'd1-4', 'A2', 'A3']);
+    expect(nos(s)).toEqual(['A1', 'N2', 'N1', 'd1-4', 'A2', 'A3']);
   });
 
   it('並べ直しても位置を保つ（一覧表を読み込み直したとき・受け取ったとき）。次の木がなければまとまりの最後', () => {
