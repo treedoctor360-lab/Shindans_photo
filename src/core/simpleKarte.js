@@ -8,10 +8,11 @@
 //    @dateSerial   … 調査日を Excel の日付の数にしたもの（様式の日付の表示形式で見せる）
 //    @check:項目   … その点検項目の部位・寸法（checks の measure）の文と、「有」のとき入れた項目の値（この順）
 //    @notes        … 特記事項（文字の欄の文と、点検項目に付けていない寸法の1行。行の頭の「・」は付けない）
-//  寸法の文の形は karte.measureLine（{text}・{place}・{kind}。既定「{text} {place}」）
+//  寸法の文の形は karte.measureLine（{text}・{place}・{kind}。既定「{text} {place}」。noteMeasures.hidePlaces の部位は書かない）
+//  1つの項目に2つ以上あるときのつなぎは karte.checkJoin（既定「／」）、特記事項の行のつなぎは karte.notesJoin（既定は全角の空白）
 import { branchRatioRaw, girthOf } from './calc.js';
-import { isMeasuresV2, measureKinds, measuresWithLines, measureText, measurePlaces, fullNotesOf } from './noteMeasures.js';
-import { blankTree, isLocked } from './tree.js';
+import { isMeasuresV2, measureKinds, measuresWithLines, measureText, measurePlaces, fullNotesOf, shownPlace } from './noteMeasures.js';
+import { blankTree, isFelled, isLocked } from './tree.js';
 
 export const SIMPLE_KARTE_CALC = ['@girth', '@branchRatio', '@dateSerial', '@notes'];
 const checkKey = (key) => `@check:${key}`;
@@ -44,7 +45,7 @@ function karteMeasure(m, cfg) {
   const text = measureText(cfg, m.kind, m.values);
   if (!text) return '';
   const kind = measureKinds(cfg).find((k) => k.key === m.kind);
-  const place = measurePlaces(m.kind, cfg).length ? m.place || '' : '';
+  const place = measurePlaces(m.kind, cfg).length ? shownPlace(cfg, m.place) : ''; // hidePlaces の部位（例 幹）は書かない
   const fmt = cfg.karte?.measureLine ?? '{text} {place}';
   return fmt
     .replace('{text}', text)
@@ -69,14 +70,14 @@ export function simpleKarteRecord(tree, cfg) {
   for (const c of cfg.checks || []) {
     const kinds = c.measure?.kinds || [];
     kinds.forEach((k) => linked.add(k));
-    if (locked && !c.always) {
+    if ((locked && !c.always) || isFelled(tree, cfg)) {
       rec[checkKey(c.key)] = '';
       continue;
     }
     const details = (cfg.details || []).filter((d) => d.when.field === c.key && tree[c.key] === d.when.eq).map((d) => str(tree[d.field]));
     const measures = ms.filter((m) => kinds.includes(m.kind)).map((m) => karteMeasure(m, cfg));
     // 部位・寸法を先に、そのあとに「有」のとき入れた項目（例 子実体の種類）。カルテの「部位・大きさ」「部位・種類」の順
-    rec[checkKey(c.key)] = [...measures, ...details].filter(Boolean).join('／');
+    rec[checkKey(c.key)] = [...measures, ...details].filter(Boolean).join(cfg.karte?.checkJoin ?? '／');
   }
   // 特記事項：文字の欄の文＋点検項目に付けていない寸法の1行
   const text = isMeasuresV2(tree) ? String(tree.notes || '') : String(fullNotesOf(tree, cfg) || '');
@@ -84,6 +85,6 @@ export function simpleKarteRecord(tree, cfg) {
   rec['@notes'] = [...text.split('\n'), ...others]
     .map((l) => str(l).replace(/^・\s*/, ''))
     .filter(Boolean)
-    .join('　');
+    .join(cfg.karte?.notesJoin ?? '　'); // 文（。で終わる）を続けるなら notesJoin を '' に
   return rec;
 }

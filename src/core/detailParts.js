@@ -46,15 +46,17 @@ export function partsOf(item, cfg) {
 }
 
 // 部品1つの文（値がなければ空）。noText の部品は計算だけに使い、文には出さない
+//  fixed：数を小数点以下この桁で出す（height・number・pair。例 1 で「1.7」「0.0」。入れた値そのものは変えない）
 export function partText(part, v) {
   if (part.noText) return '';
   const unit = (d) => (part.unit != null ? part.unit : d);
+  const fx = (x) => (part.fixed != null && x !== '' && Number.isFinite(Number(x)) ? Number(x).toFixed(part.fixed) : x);
   switch (part.type) {
     case 'count':
       return clean(v) ? `${clean(v)}${unit('本')}` : '';
     case 'height': {
-      const a = clean(v?.a);
-      const b = clean(v?.b);
+      const a = fx(clean(v?.a));
+      const b = fx(clean(v?.b));
       if (!a && !b) return '';
       const pre = part.prefix != null ? part.prefix : '地上';
       return a && b ? `${pre}${a}${part.sep || '～'}${b}${unit('m')}` : `${pre}${a || b}${unit('m')}`;
@@ -69,7 +71,7 @@ export function partText(part, v) {
       return list.join('、') + (part.places && list.length > 1 ? `（${list.length}${part.places}）` : '');
     }
     case 'number':
-      return clean(v) ? `${part.prefix || ''}${clean(v)}${unit('')}` : '';
+      return clean(v) ? `${part.prefix || ''}${fx(clean(v))}${unit('')}` : '';
     case 'choice':
       return clean(v) ? `${part.prefix || ''}${clean(v)}` : '';
     case 'text':
@@ -78,8 +80,8 @@ export function partText(part, v) {
       // offText：付けない（false）を選んだときの文（例「（芯未達）」）。選んでいない（undefined）なら何も出さない
       return v ? part.text || '' : v === false && part.offText ? part.offText : '';
     case 'pair': {
-      const a = clean(v?.a);
-      const b = clean(v?.b);
+      const a = fx(clean(v?.a));
+      const b = fx(clean(v?.b));
       if (!a && !b) return '';
       // 片方が空なら、その側は単位も出さない（「2cm/cm」にしない。例「2cm/」「/50cm」）
       return `${a ? a + unit('') : ''}${part.sep || '/'}${b ? b + unit('') : ''}`;
@@ -370,6 +372,7 @@ export function validatePartDefs(defs, at0, need) {
         `${at}.slant（斜めの長さの欄）は pair に付け、{ label, angle（0〜90 の角度） } の形にしてください`,
       );
     if (p.digits != null) need(Number.isInteger(p.digits) && p.digits >= 0 && p.digits <= 3, `${at}.digits は 0〜3 の整数にしてください`);
+    if (p.fixed != null) need(Number.isInteger(p.fixed) && p.fixed >= 0 && p.fixed <= 3, `${at}.fixed（文に出す小数点以下の桁）は 0〜3 の整数にしてください`);
     if (p.offText != null) need(p.type === 'flag', `${at}.offText（付けないときの文）は flag だけに付けられます`);
     if (p.coreFrom != null) need(p.type === 'flag' && defs[p.coreFrom]?.type === 'pair', `${at}.coreFrom は flag に付け、pair の名前にしてください`);
     if (p.noText != null) need(typeof p.noText === 'boolean', `${at}.noText は true か false にしてください`);

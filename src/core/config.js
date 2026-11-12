@@ -166,11 +166,14 @@ export function validateConfig(cfg) {
     need(isArr(cfg.checks) && cfg.checks.some((c) => c?.key === cfg.initial.afterCheck && c.place !== 'measure'), 'initial.afterCheck は、計測の区切りに出さない点検項目のキーにしてください');
   if (cfg.numbering != null) validateNumbering(cfg.numbering, need); // 追加した木に番号を順に振る（省略可）
   if (cfg.listSheet != null) validateListSheet(cfg.listSheet, cfg, need); // 一覧型の野帳（省略可）
+  // 伐採済み（省略可）：{ label?: ボタンの文字 }
+  if (cfg.felled != null) need(cfg.felled && typeof cfg.felled === 'object' && !Array.isArray(cfg.felled) && (cfg.felled.label == null || typeof cfg.felled.label === 'string'), 'felled（伐採済み）は { label?: ボタンの文字 } にしてください');
   // 簡易診断のカルテ（1本1シート。提出用。省略可）。形は initialSurvey.karte と同じで、form は simple
   if (cfg.karte != null) {
     const siteTypes = isObj(cfg.dbFormat) && isArr(cfg.dbFormat.sheets) ? cfg.dbFormat.sheets.map((x) => x?.type) : [];
     validateKarte(cfg.karte, () => simpleKarteKeys(cfg), siteTypes, need, 'karte', ['simple']);
     need(cfg.karte?.measureLine == null || (typeof cfg.karte.measureLine === 'string' && cfg.karte.measureLine.includes('{text}')), 'karte.measureLine は {text} を含む文字にしてください');
+    for (const k of ['checkJoin', 'notesJoin']) need(cfg.karte?.[k] == null || typeof cfg.karte[k] === 'string', `karte.${k}（つなぎの文字）は文字にしてください`);
   }
   // まとまりを名前のほかの項目でも分ける（省略可。例 路線番号・区域）
   if (isArr(cfg.dbFormat?.sheets))
@@ -191,6 +194,7 @@ function validateExtraFields(list, cfg, need) {
   const taken = new Set([
     ...Object.keys(blankTree()),
     ...['siteType', 'area', 'uid', 'after', 'deleted', 'sent', 'updatedAt', 'rev', 'measures', 'measuresV', 'ledgerRow', 'ledgerGone', 'rowDup'],
+    'felled', // 伐採済み（felled）
     ...(isArr(cfg.checks) ? cfg.checks.map((c) => c?.key) : []),
     ...(isArr(cfg.details) ? cfg.details.map((d) => d?.field) : []),
     ...(isArr(cfg.dbFormat?.infoKeys) ? cfg.dbFormat.infoKeys : []), // 台帳から写す場所の情報
