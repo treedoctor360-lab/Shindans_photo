@@ -1,5 +1,6 @@
 // 一覧画面：公園・路線を選び、木の一覧から入力する木を選ぶ
 import AddGroupBox from './AddGroupBox.jsx';
+import RenumberBox from './RenumberBox.jsx';
 import { groupKey, groupKeys, groupLabel, treesOfGroup } from '../core/groups.js';
 import { alertsOf } from '../core/rules.js';
 import { monthDay, toHalf } from '../core/text.js';
@@ -366,6 +367,10 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
       >
         ＋ 一覧にない木を追加
       </button>
+      {/* 番号を並び順に振り直す（差し込んだ・移したあと。調査者だけ） */}
+      {cfg.numbering && role === 'surveyor' && group && (
+        <RenumberBox key={`rn-${group}`} state={{ ...state, group }} cfg={cfg} update={(fn, o) => update((cur) => ({ ...fn({ ...cur, group }), group }), o)} send={send} toast={toast} groupName={groupLabel(state.trees, group, cfg)} />
+      )}
       {cfg.addGroups && <AddGroupBox state={state} cfg={cfg} update={update} toast={toast} />}
       {/* 調査日を間違えて保存した木を、この公園・路線でまとめて直す（入力内容を直すのは調査者だけ） */}
       {role === 'surveyor' && (

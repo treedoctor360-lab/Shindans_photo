@@ -6,6 +6,7 @@ import { dbNoteOf, freeNoteLines, isChipLine, noteLines, toggleChip } from '../c
 import { freeNotesOf, toMeasuresV2 } from '../core/noteMeasures.js';
 import NoteMeasures from './NoteMeasures.jsx';
 import KarteView from './KarteView.jsx';
+import MoveBox from './MoveBox.jsx';
 import SessionStamp from './SessionStamp.jsx';
 import { photoFlag, photoPlan } from '../core/photo.js';
 import { alertsOf, missingFields } from '../core/rules.js';
@@ -947,6 +948,21 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
             >
               この木の次に木を追加
             </button>
+            {/* この木の前に入れる（路線の先頭の前にも。番号は空欄。「番号を並び順に振り直す」で整える） */}
+            {cfg.numbering && isAddedTree(t) && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  update((cur) => addTree({ ...cur, group }, cfg, { beforeId: t.id, area: t.area || '' }), { now: true }).then(() => send?.());
+                  window.scrollTo(0, 0);
+                }}
+                data-testid="add-before"
+              >
+                この木の前に木を追加
+              </button>
+            )}
+            {cfg.addGroups && isAddedTree(t) && !readOnly && <MoveBox state={state} cfg={cfg} tree={t} update={update} send={send} toast={toast} />}
             {!isAddedTree(t) && !readOnly && t.source === 'app' && !renum && (
               <button type="button" className="btn" onClick={() => setRenum({ no: '', drop: [] })} data-testid="renumber">
                 現地の番号に変える

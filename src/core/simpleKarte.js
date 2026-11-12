@@ -6,7 +6,7 @@
 //    @girth        … 幹周（株立は係数を掛けた記録値）
 //    @branchRatio  … 枝長/枝径（小数第2位まで。枯死・入力なしは空）
 //    @dateSerial   … 調査日を Excel の日付の数にしたもの（様式の日付の表示形式で見せる）
-//    @check:項目   … その点検項目の「有」のとき入れた項目の値と、部位・寸法（checks の measure）の文
+//    @check:項目   … その点検項目の部位・寸法（checks の measure）の文と、「有」のとき入れた項目の値（この順）
 //    @notes        … 特記事項（文字の欄の文と、点検項目に付けていない寸法の1行。行の頭の「・」は付けない）
 //  寸法の文の形は karte.measureLine（{text}・{place}・{kind}。既定「{text} {place}」）
 import { branchRatioRaw, girthOf } from './calc.js';
@@ -75,7 +75,8 @@ export function simpleKarteRecord(tree, cfg) {
     }
     const details = (cfg.details || []).filter((d) => d.when.field === c.key && tree[c.key] === d.when.eq).map((d) => str(tree[d.field]));
     const measures = ms.filter((m) => kinds.includes(m.kind)).map((m) => karteMeasure(m, cfg));
-    rec[checkKey(c.key)] = [...details, ...measures].filter(Boolean).join('／');
+    // 部位・寸法を先に、そのあとに「有」のとき入れた項目（例 子実体の種類）。カルテの「部位・大きさ」「部位・種類」の順
+    rec[checkKey(c.key)] = [...measures, ...details].filter(Boolean).join('／');
   }
   // 特記事項：文字の欄の文＋点検項目に付けていない寸法の1行
   const text = isMeasuresV2(tree) ? String(tree.notes || '') : String(fullNotesOf(tree, cfg) || '');

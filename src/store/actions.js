@@ -154,24 +154,31 @@ export function addGroup(state, cfg, values, now = Date.now(), firstTree = {}) {
 //            なければ、まとまりの最後に入れる
 //  設定 numbering があれば、まとまりの最後に足す木には次の番号を入れ、前の木から写す項目（carry。例 樹種）を写す。
 //  途中に差し込む木（afterId がまとまりの最後の木でない）は、番号を空欄にして自分で入れてもらう（後ろの番号は振り直さない）
-export function addTree(state, cfg, { area = '', now = Date.now(), afterId = '' } = {}) {
+export function addTree(state, cfg, { area = '', now = Date.now(), afterId = '', beforeId = '' } = {}) {
   const ts = currentGroupTrees(state, cfg);
-  const anchor = afterId ? state.trees.find((x) => x.id === afterId) : null;
-  const ref = anchor || ts[0] || {};
+  // beforeId：その木の前に入れる＝その木の1つ前の木の次に入れる（まとまりの先頭なら、先頭に入れる）
+  const before = beforeId ? state.trees.find((x) => x.id === beforeId) : null;
+  const prevOfBefore = before ? ts[ts.indexOf(before) - 1] || null : null;
+  const anchor = before ? prevOfBefore : afterId ? state.trees.find((x) => x.id === afterId) : null;
+  const ref = anchor || before || ts[0] || {};
   const copyKeys = ['siteType', ...cfg.dbFormat.infoKeys];
   const uid = `${state.server?.deviceId || 'dev'}-${Number(now).toString(36)}`;
   const nt = blankTree({ id: `new:${now}`, uid, status: cfg.newTreeStatus ?? '', area });
   for (const k of copyKeys) if (ref[k] !== undefined) nt[k] = ref[k];
   if (cfg.numbering) {
     const live = ts.filter((x) => !x.deleted);
-    const prev = anchor || live.at(-1);
-    if (!anchor || anchor === live.at(-1)) nt.treeNo = nextTreeNo(live, cfg);
+    const prev = anchor || (before ? null : live.at(-1)) || before;
+    // まとまりの最後に足す木だけ次の番号。途中・先頭に差し込む木は番号を空欄にする
+    if (!before && (!anchor || anchor === live.at(-1))) nt.treeNo = nextTreeNo(live, cfg);
     for (const k of cfg.numbering.carry || []) if (prev?.[k]) nt[k] = prev[k];
   }
   let trees;
   if (anchor) {
-    nt.after = simpleKey(anchor, cfg);
-    trees = placeAdded([...state.trees, nt], cfg);
+    trees = placeAdded(linkAfter([...state.trees, nt], cfg, nt, anchor, now), cfg);
+  } else if (before) {
+    // まとまりの先頭に入れる：その木の位置に入れ、その木を新しい木の次にする
+    const at = state.trees.indexOf(before);
+    trees = linkFirst([...state.trees.slice(0, at), nt, ...state.trees.slice(at)], cfg, nt, before, now);
   } else {
     // まとまりの最後の木の直後に入れる
     const last = ts.at(-1);
@@ -179,6 +186,102 @@ export function addTree(state, cfg, { area = '', now = Date.now(), afterId = '' 
     trees = [...state.trees.slice(0, at), nt, ...state.trees.slice(at)];
   }
   return { ...state, trees, currentId: nt.id, view: 'form', group: state.group || groupKey(nt, cfg) };
+}
+
+// ---------- 並びの付け替え（差し込み・並びの選び直し・路線を移す） ----------
+//  追加した木の並びは、木の after（次に置く木の鍵）でつながっている（src/store/order.js）。
+//  ある木の直後に入れるときは、その木の次にあった木（after がその木の木）を、入れる木の次に付け替える。
+//  付け替えないと、次にあった木の後ろに並んでしまう（同じ木の次に追加した木は、追加した順に並べるため）
+
+// 一覧表の行に結び付いていない木（after で並ぶ木）
+const unbound = (t) => !t.ledgerRow || !!t.ledgerGone;
+// after を変えた木の印：入力済みなら送り直す
+const relinked = (t, after, now) => (t.after || '') === after ? t : { ...t, after, ...(t.done ? { sent: false, updatedAt: stamp(now) } : {}) };
+
+// m を anchor の直後に置く（m は trees に入っていること）。anchor の次にあった木は m の次へ
+export function linkAfter(trees, cfg, m, anchor, now) {
+  const ak = simpleKey(anchor, cfg);
+  const mk = simpleKey(m, cfg);
+  return trees.map((t) => {
+    if (t === m) return relinked(t, ak, now);
+    if (unbound(t) && t.after === ak) return relinked(t, mk, now);
+    return t;
+  });
+}
+
+// m をまとまりの先頭（first の前）に置く（m は trees の first の前に入っていること）
+function linkFirst(trees, cfg, m, first, now) {
+  const mk = simpleKey(m, cfg);
+  return trees.map((t) => {
+    if (t === m) return relinked(t, '', now);
+    if (t === first && unbound(t)) return relinked(t, mk, now);
+    return t;
+  });
+}
+
+// 木を並びから外すとき：その木の次にあった木を、その木の前の木の次に付け替える（すき間を詰める）
+function unlink(trees, cfg, gone, now) {
+  const map = new Map(gone.map((g) => [simpleKey(g, cfg), g.after || '']));
+  const resolve = (k) => {
+    let v = k;
+    for (let i = 0; i < 1000 && map.has(v); i++) v = map.get(v); // 外す木が続いていれば、その前までたどる
+    return v;
+  };
+  return trees.map((t) => (gone.includes(t) || !unbound(t) || !map.has(t.after || '') ? t : relinked(t, resolve(t.after), now)));
+}
+
+// ---------- 番号を並び順に振り直す・別のまとまり（路線）へ移す ----------
+
+// 今の公園・路線の番号を、並び順に 1 から振り直す（設定 numbering の start から）
+//  削除した木は数えない。一覧表の行に結び付いた木があるまとまりはしない（一覧表の番号を変えられないため）
+//  返す形：{ state, changes: [{ id, from, to }], error }。番号が変わった入力済みの木は送り直す（確定は外れる）
+export function renumberGroup(state, cfg, now) {
+  const live = currentGroupTrees(state, cfg).filter((t) => !t.deleted);
+  if (live.some((t) => !unbound(t))) return { state, changes: [], error: '一覧表の行に結び付いた木があるため、番号を振り直せません' };
+  const start = cfg.numbering?.start ?? 1;
+  const changes = [];
+  live.forEach((t, i) => {
+    const to = String(start + i);
+    if (toHalf(t.treeNo).trim() !== to) changes.push({ id: t.id, from: t.treeNo || '', to });
+  });
+  if (!changes.length) return { state, changes, error: '' };
+  const byId = new Map(changes.map((c) => [c.id, c.to]));
+  const trees = state.trees.map((t) => (byId.has(t.id) ? { ...t, treeNo: byId.get(t.id), ...(t.done ? { sent: false, updatedAt: stamp(now) } : {}) } : t));
+  return { state: { ...state, trees }, changes, error: '' };
+}
+
+// 木を別の公園・路線へ移す
+//  id の木から（rest: true ならその後ろの木すべて。削除した木は除く）を、移す先（values：場所の情報 { siteType, 名前の項目, … }）の最後に並べる
+//  移す先の番号は、numbering があればその続きを振る。元の公園・路線では、移した木の前後をつなぎ直す
+//  返す形：{ state, moved: [id…], error }
+export function moveTrees(state, cfg, { id, rest = false, values, now }) {
+  const src = currentGroupTrees(state, cfg);
+  const x = src.find((t) => t.id === id);
+  if (!x) return { state, moved: [], error: '木が見つかりません' };
+  const block = (rest ? src.slice(src.indexOf(x)) : [x]).filter((t) => !t.deleted);
+  if (block.some((t) => !unbound(t))) return { state, moved: [], error: '一覧表の行に結び付いた木は移せません' };
+  const copyKeys = ['siteType', ...cfg.dbFormat.infoKeys];
+  const destKey = groupKey({ ...values }, cfg);
+  if (destKey === groupKey(x, cfg)) return { state, moved: [], error: '同じ路線です' };
+  // 元の並びから外し、すき間を詰める
+  let trees = unlink(state.trees.filter((t) => !block.includes(t)), cfg, block, now);
+  const dest = treesOfGroup(trees, destKey, cfg);
+  const destLive = dest.filter((t) => !t.deleted);
+  let no = cfg.numbering ? Number(nextTreeNo(destLive, cfg)) : null;
+  let prev = dest.at(-1) || null;
+  const moved = block.map((t) => {
+    const m = { ...t };
+    for (const k of copyKeys) m[k] = values[k] ?? '';
+    if (no != null) m.treeNo = String(no++);
+    m.after = prev ? simpleKey(prev, cfg) : '';
+    if (m.done) Object.assign(m, { sent: false, updatedAt: stamp(now) });
+    prev = m;
+    return m;
+  });
+  // 移す先の最後の木の直後（移す先に木がなければ、いちばん後ろ）に入れる
+  const at = dest.length ? trees.indexOf(dest.at(-1)) + 1 : trees.length;
+  trees = placeAdded([...trees.slice(0, at), ...moved, ...trees.slice(at)], cfg);
+  return { state: { ...state, trees, group: destKey, currentId: x.id }, moved: moved.map((m) => m.id), error: '' };
 }
 
 // 追加した木の並び（どの木の次か）を変える。afterId が '' なら、まとまりの最後へ
@@ -189,12 +292,16 @@ export function setAddedPlace(state, cfg, id, afterId, now) {
   const after = anchor ? simpleKey(anchor, cfg) : '';
   if ((t.after || '') === after) return state;
   // 並びは送る内容にも入る（他の端末でも同じ位置に並ぶ）。入力済みの木だけ送り直す
-  const moved = { ...t, after, ...(t.done ? { sent: false, updatedAt: stamp(now) } : {}) };
-  let trees = state.trees.filter((x) => x.id !== id);
+  //  元の位置のすき間を詰め（この木の次にあった木を、この木の前の木の次へ）、新しい位置ではその木の次にあった木をこの木の次へ
+  let trees = unlink(state.trees.filter((x) => x.id !== id), cfg, [t], now);
   if (!anchor) {
+    const moved = relinked(t, '', now);
     const at = afterSameGroup(trees, moved, cfg);
     trees = [...trees.slice(0, at), moved, ...trees.slice(at)];
-  } else trees = placeAdded([...trees, moved], cfg);
+  } else {
+    const moved = { ...t };
+    trees = placeAdded(linkAfter([...trees, moved], cfg, moved, anchor, now), cfg);
+  }
   return { ...state, trees };
 }
 
