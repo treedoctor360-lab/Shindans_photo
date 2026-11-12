@@ -173,15 +173,38 @@ export function measureLine(cfg, kindKey, place, values) {
   if (!kind) return '';
   const needPlace = measurePlaces(kindKey, cfg).length > 0;
   if (needPlace && !place) return '';
+  if (kind.sentence) return sentenceOf(cfg, kind, needPlace ? place : '', values);
   const text = measureText(cfg, kindKey, values);
   if (!text) return '';
   return lineOf(cfg, kind, needPlace ? place : '', text);
 }
 
+// 出す部位（設定 noteMeasures.hidePlaces の部位は書かない。例 幹は書かず、幹以外のときだけ部位を書く）
+export const shownPlace = (cfg, place) => ((cfg.noteMeasures?.hidePlaces || []).includes(place) ? '' : place || '');
+
+// 種類の sentence（文の形）から特記事項の1文を作る
+//  {place}（部位）と {欄の名前}（その欄の文。例 {height} →「H=1.1m」）を入れる。[ ] で囲んだところは、中の {…} が
+//  どれか空なら丸ごと省く。例「[{height}で][{size}の]樹皮枯死欠損が見られる。」→「H=1.1mで35×5cmの樹皮枯死欠損が見られる。」
+export function sentenceOf(cfg, kind, place, values) {
+  const parts = measureParts(kind.key, cfg);
+  const textOf = (name) => {
+    if (name === 'place') return shownPlace(cfg, place);
+    if (name === 'kind') return kind.label;
+    const p = parts.find((x) => x.name === name);
+    return p ? buildText(values, [p], '') : '';
+  };
+  const fill = (str) => str.replace(/\{(\w+)\}/g, (_, n) => textOf(n));
+  const out = kind.sentence.replace(/\[([^\]]*)\]/g, (_, seg) => {
+    const names = [...seg.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+    return names.every((n) => textOf(n)) ? fill(seg) : '';
+  });
+  return fill(out).trim();
+}
+
 // 数字の部分だけの文（例「H0～0.4m、40×20cm」）
 export const measureText = (cfg, kindKey, values) => buildText(values, measureParts(kindKey, cfg), cfg.noteMeasures?.join ?? '、');
 const lineOf = (cfg, kind, place, text) =>
-  (kind.line || cfg.noteMeasures.line || '{place}の{kind}：{text}').replace('{place}', place).replace('{kind}', kind.label).replace('{text}', text);
+  (kind.line || cfg.noteMeasures.line || '{place}の{kind}：{text}').replace('{place}', shownPlace(cfg, place)).replace('{kind}', kind.label).replace('{text}', text);
 
 // 丸数字（①〜⑳。それより多ければ「(21)」）
 const circled = (i) => (i < 20 ? String.fromCharCode(0x2460 + i) : `(${i + 1})`);
@@ -266,6 +289,7 @@ export function validateNoteMeasures(m, need) {
   need(m.line == null || (isStr(m.line) && m.line.includes('{text}')), 'noteMeasures.line は {text} を含む文字にしてください');
   need(m.join == null || typeof m.join === 'string', 'noteMeasures.join は文字にしてください');
   need(m.merge == null || typeof m.merge === 'boolean', 'noteMeasures.merge は true か false にしてください');
+  need(m.hidePlaces == null || (Array.isArray(m.hidePlaces) && m.hidePlaces.every(isStr)), 'noteMeasures.hidePlaces（書かない部位）は部位の文字の並びにしてください');
   const okDefs = validatePartDefs(m.parts, 'noteMeasures.parts', need);
   if (!need(Array.isArray(m.kinds) && m.kinds.length > 0, 'noteMeasures.kinds（寸法の種類）がありません')) return;
   const keys = new Set();
@@ -277,6 +301,10 @@ export function validateNoteMeasures(m, need) {
     if (okDefs) need(k.parts.every((n) => m.parts[n]), `${at}.parts に、noteMeasures.parts にない欄があります`);
     need(k.places == null || (Array.isArray(k.places) && k.places.every(isStr)), `${at}.places は部位の文字の並び（部位を選ばないなら []）にしてください`);
     need(k.line == null || (isStr(k.line) && k.line.includes('{text}')), `${at}.line は {text} を含む文字にしてください`);
+    need(
+      k.sentence == null || (isStr(k.sentence) && [...k.sentence.matchAll(/\{(\w+)\}/g)].every((x) => ['place', 'kind'].includes(x[1]) || k.parts.includes(x[1]))),
+      `${at}.sentence は文の形（{place}・{kind}・その種類の欄の名前を {…} で入れる。[ ] は中が空なら省く）にしてください`,
+    );
     need(k.photo == null || isStr(k.photo), `${at}.photo は写真の名前（文字）にしてください`);
     need(k.fullOnly == null || typeof k.fullOnly === 'boolean', `${at}.fullOnly は true か false にしてください`);
     need(k.db == null || isStr(k.db), `${at}.db は一覧表用の言い回し（文字）にしてください`);

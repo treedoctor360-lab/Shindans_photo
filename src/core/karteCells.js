@@ -71,6 +71,7 @@ export function validateKarte(k, keysOf, siteTypes, need, where = 'initialSurvey
         fmtKeys(c.fmt).filter(unknown).forEach((x) => need(false, unknownMsg(x)));
       need(c.join == null || typeof c.join === 'string', `${ct}.join は文字にしてください`);
       need(c.skipEmpty == null || typeof c.skipEmpty === 'boolean', `${ct}.skipEmpty は true か false にしてください`);
+      need(c.keepIfEmpty == null || typeof c.keepIfEmpty === 'boolean', `${ct}.keepIfEmpty（空なら様式の文字を残す）は true か false にしてください`);
       need(c.replaceFormula == null || typeof c.replaceFormula === 'boolean', `${ct}.replaceFormula は true か false にしてください`);
       if (c.boxes != null) {
         need(typeof c.boxes === 'string' && boxOptions(c.boxes).length > 0, `${ct}.boxes は「□無 □有」のような□の付いた文字にしてください`);

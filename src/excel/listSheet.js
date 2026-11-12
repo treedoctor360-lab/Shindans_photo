@@ -14,7 +14,7 @@ import ExcelJS from 'exceljs';
 import { girthOf } from '../core/calc.js';
 import { groupKey, groupLabel } from '../core/groups.js';
 import { fullNotesOf, isMeasuresV2, measuresWithLines } from '../core/noteMeasures.js';
-import { isLocked } from '../core/tree.js';
+import { isFelled, isLocked } from '../core/tree.js';
 import { fitSize } from './fitText.js';
 
 import { PAPER } from '../core/listSheetConfig.js';
@@ -42,7 +42,7 @@ export function listRemarks(tree, cfg) {
   for (const f of fields) {
     const mine = lines.filter((l) => f.kinds.includes(l.kind));
     mine.forEach((l) => used.add(l.line));
-    if (locked && f.lockable) continue;
+    if ((locked && f.lockable) || isFelled(tree, cfg)) continue;
     const ds = cfg.details.filter((d) => d.when.field === f.key && tree[f.key] === d.when.eq);
     const vals = ds.map((d) => ({ d, v: str(tree[d.field]) })).filter((x) => x.v);
     if (vals.length) {

@@ -13,7 +13,7 @@ import { alertsOf, missingFields } from '../core/rules.js';
 import { num, toHalf } from '../core/text.js';
 import { simpleKey } from '../store/surveys.js';
 import { composeTreat } from '../core/treat.js';
-import { isDead, isLocked } from '../core/tree.js';
+import { isDead, isFelled, isLocked } from '../core/tree.js';
 import {
   addTree,
   deleteTree,
@@ -190,6 +190,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
   const readOnly = t.source === 'ledger' || officeView || !!t.deleted;
   const surveyor = (state.user?.role || 'surveyor') !== 'office';
   const locked = isLocked(t, cfg);
+  const felled = isFelled(t, cfg); // 伐採済み（点検項目・要否・樹勢を止める）
   // 点検項目の並び（設定 checks の place・initial.afterCheck で野帳の並びに合わせる）
   const measureChecks = cfg.checks.filter((c) => c.place === 'measure');
   const mainChecks = cfg.checks.filter((c) => c.place !== 'measure');
@@ -304,7 +305,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
   const checkRow = (c) => {
     const details = cfg.details.filter((d) => d.when.field === c.key);
     return (
-      <fieldset key={c.key} disabled={locked && !c.always}>
+      <fieldset key={c.key} disabled={(locked && !c.always) || felled}>
         <div className="check">
           <span className="lbl">{c.label}</span>
           <Seg field={c.key} opts={cfg.options[c.key]} value={t[c.key]} onPress={press} />
@@ -353,7 +354,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
   //  点検の並びに出すときは、点検項目と同じ見た目（1行に名前と選択肢）
   //  details の when が initialNeeded の項目（例 理由）は、その条件のときに下に出す
   const initialRow = (
-    <>
+    <fieldset disabled={felled}>
       <div className={cfg.initial.afterCheck ? 'check' : 'row'}>
         <span className="lbl">{cfg.initial.label}</span>
         <Seg field="initialNeeded" opts={cfg.options.initialNeeded} value={t.initialNeeded} onPress={press} />
@@ -375,7 +376,7 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
             />
           </div>
         ))}
-    </>
+    </fieldset>
   );
   const felling = cfg.rules.filter((r) => r.type === 'treatRequires').filter((r) => new RegExp(r.pattern).test(treat));
 
@@ -496,6 +497,27 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               <option key={s} value={s} />
             ))}
           </datalist>
+          {/* 伐採済み（設定 felled）：押すと点検項目・要否・樹勢を空欄にし、入力を止める（未入力にも数えない）。もう一度押すと戻す */}
+          {cfg.felled && (
+            <div className="row">
+              <button
+                type="button"
+                className={`chip${t.felled ? ' on strong' : ''}`}
+                aria-pressed={!!t.felled}
+                onClick={() =>
+                  change((x) => {
+                    if (x.felled) return { ...x, felled: false };
+                    const cleared = Object.fromEntries([...cfg.checks.map((c) => c.key), 'initialNeeded', 'vigor'].map((k) => [k, '']));
+                    return { ...x, ...cleared, felled: true };
+                  })
+                }
+                data-testid="felled"
+              >
+                {cfg.felled.label || '伐採済み'}
+              </button>
+              {t.felled && <small className="hint">点検項目・要否・{cfg.vigorLabel}は空欄のままにします（未入力に数えません）。特記事項に様子を書いてください</small>}
+            </div>
+          )}
           {cfg.statusOptions && (
             <div className="row">
               <span className="lbl">状態</span>
@@ -672,10 +694,10 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
 
         <div className="sec">
           <h2>点検</h2>
-          <div className="row">
+          <fieldset disabled={felled} className="row">
             <span className="lbl">{cfg.vigorLabel}</span>
             <Seg field="vigor" opts={cfg.options.vigor} value={t.vigor} onPress={press} />
-          </div>
+          </fieldset>
           <fieldset disabled={locked}>
             <button
               type="button"

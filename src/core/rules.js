@@ -9,13 +9,14 @@ import { fixWording, wordingIssues } from './wording.js';
 import { photoPlan } from './photo.js';
 import { fill, monthDay, num, toHalf } from './text.js';
 import { composeTreat } from './treat.js';
-import { isDead, isLocked, matches } from './tree.js';
+import { isDead, isFelled, isLocked, matches } from './tree.js';
 
 // ---------- 入力漏れ ----------
 export function missingFields(tree, cfg) {
   const m = [];
   if (!toHalf(tree.treeNo).trim()) m.push('樹木番号');
   if (!tree.species) m.push('樹種');
+  if (isFelled(tree, cfg)) return m; // 伐採済みの木：番号と樹種のほかは聞かない
   if (!num(tree.height)) m.push('樹高');
   if (!girthOf(tree, cfg)) m.push('幹周');
   if (!tree.vigor) m.push(cfg.vigorLabel);

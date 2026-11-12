@@ -301,6 +301,8 @@ export async function exportKarte(templateBuffer, records, cfg, k = cfg.initialS
       const grow = new Map(); // 広げる行（行の番号 → 高さ pt）。最小の大きさでも収まらない文の枠の、いちばん下の行
       const edits = spec.cells.map((c) => {
         const e = { addr: c.cell, value: c.keep ? undefined : karteValue(c, rec), replaceFormula: !!c.replaceFormula, keepValue: !!c.keep };
+        // keepIfEmpty：書く値が空なら、そのセルは書かない（様式に印字されている「H=　　m」などを残す）
+        if (c.keepIfEmpty && !c.keep && (e.value == null || String(e.value).trim() === '')) return null;
         const code = fillFmt(c.fmt, rec);
         if (code) {
           e.style = styles.derive(baseStyle(key, c.cell), code);
@@ -325,7 +327,7 @@ export async function exportKarte(templateBuffer, records, cfg, k = cfg.initialS
           }
         }
         return e;
-      });
+      }).filter(Boolean);
       if (spec.markCell && mark) edits.push({ addr: spec.markCell, value: mark }); // 画面でも見える確認用の印
       let xml;
       let rows = new Map();
