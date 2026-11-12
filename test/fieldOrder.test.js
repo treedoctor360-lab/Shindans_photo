@@ -76,3 +76,25 @@ describe('出力の見出し（一覧表形式・入力内容の一覧）', () =
     expect(columns(c2, site, null, [blankTree({ treeNo: '1', uid: 'u1' })]).map(([k]) => k)).not.toContain(serial);
   });
 });
+
+describe('「すべて無にする」で要否の項目なども選ぶ（checks の none・initial.fillNone）', () => {
+  it('none の値と詳しい診断の要否を入れ、選んである項目は変えない', async () => {
+    const { fillChecksNone, checksNoneLabel } = await import('../src/store/actions.js');
+    const base = structuredClone(cfg);
+    const k2 = base.checks[1].key;
+    const opts = base.options[k2];
+    const c2 = { ...base, checks: base.checks.map((c, i) => (i === 1 ? { ...c, none: opts.at(-1) } : c)), initial: { ...base.initial, fillNone: true } };
+    expect(validateConfig(c2).errors).toEqual([]);
+    expect(validateConfig({ ...c2, checks: c2.checks.map((c, i) => (i === 1 ? { ...c, none: 'ない値' } : c)) }).ok).toBe(false);
+    expect(validateConfig({ ...c2, initial: { ...c2.initial, fillNone: 'yes' } }).ok).toBe(false);
+    const k0 = base.checks[0].key;
+    const r = fillChecksNone({ [k0]: base.options[k0].at(-1) }, c2);
+    expect(r.tree[k0]).toBe(base.options[k0].at(-1)); // 選んであった項目はそのまま
+    expect(r.tree[k2]).toBe(opts.at(-1));
+    expect(r.tree.initialNeeded).toBe(base.initial.no);
+    expect(r.keys).toContain('initialNeeded');
+    expect(fillChecksNone({ initialNeeded: base.initial.yes }, c2).tree.initialNeeded).toBe(base.initial.yes);
+    expect(checksNoneLabel(c2)).toMatch(/要否などは/);
+    expect(checksNoneLabel(base)).not.toMatch(/要否などは/);
+  });
+});

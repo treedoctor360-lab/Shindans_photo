@@ -20,6 +20,7 @@ import {
   renumberToAdded,
   setAddedPlace,
   fillChecksNone,
+  checksNoneLabel,
   isAddedTree,
   normalizeField,
   pressAlertAction,
@@ -418,6 +419,17 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
         </div>
       )}
 
+      {/* 今の入力内容をカルテ（設定 karte）の形で見る（入力中でも。ダウンロードしなくても確かめられる）
+          詳しい診断の画面と同じく上の方に置く。見るだけなので、見るだけの木（fieldset の外）でも押せる */}
+      {cfg.karte && (
+        <div className="acts">
+          <button type="button" className="btn" onClick={() => setShowKarte(true)} data-testid="karte-view-open">
+            カルテで見る
+          </button>
+        </div>
+      )}
+      {showKarte && <KarteView state={state} cfg={cfg} tree={t} onClose={() => setShowKarte(false)} />}
+
       <fieldset disabled={readOnly} className="form-body">
         <div className="sec">
           <h2>樹木</h2>
@@ -656,11 +668,12 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
                 const r = fillChecksNone(t, cfg);
                 if (!r.keys.length) return toast('まだ選んでいない点検項目はありません');
                 change((x) => fillChecksNone(x, cfg).tree); // その時点の最新の木に対して行う
-                toast(`まだ選んでいなかった${r.keys.length}項目を「${cfg.noneValue || '無'}」にしました`);
+                const extra = checksNoneLabel(cfg).match(/（要否などは「(.+?)」）/); // 要否の項目なども入れる設定か
+                toast(`まだ選んでいなかった${r.keys.length}項目を「${cfg.noneValue || '無'}」${extra ? `（要否などは「${extra[1]}」）` : ''}にしました`);
               }}
               data-testid="checks-none"
             >
-              まだ選んでいない点検項目をすべて「{cfg.noneValue || '無'}」にする
+              {checksNoneLabel(cfg)}
             </button>
           </fieldset>
           {/* 点検項目は1項目ずつ fieldset（枯死の木で項目ごとに入力を止めるため）。間隔は check-list で詰める */}
@@ -782,16 +795,6 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
         )}
 
         <Alerts list={otherAlerts} onAct={onAct} asking={asking} onAsk={(a, act) => setAsking({ alertId: a.id, act })} onCancel={() => setAsking(null)} />
-
-        {/* 今の入力内容をカルテ（設定 karte）の形で見る（入力中でも。ダウンロードしなくても確かめられる） */}
-        {cfg.karte && (
-          <div className="acts">
-            <button type="button" className="btn" onClick={() => setShowKarte(true)} data-testid="karte-view-open">
-              カルテで見る
-            </button>
-          </div>
-        )}
-        {showKarte && <KarteView state={state} cfg={cfg} tree={t} onClose={() => setShowKarte(false)} />}
 
         <div className="sec">
           <h2>写真（デジカメで撮影）</h2>

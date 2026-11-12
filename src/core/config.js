@@ -148,6 +148,8 @@ export function validateConfig(cfg) {
     cfg.checks.forEach((c) => {
       need(c?.place == null || c.place === 'measure', `checks の ${c?.key} の place は "measure" だけ使えます`);
       need(c?.always == null || typeof c.always === 'boolean', `checks の ${c?.key} の always は true か false にしてください`);
+      // none：「すべて無にする」でこの項目に入れる値（省略時は noneValue か「無」）
+      need(c?.none == null || (typeof c.none === 'string' && (cfg.options?.[c?.key] || []).includes(c.none)), `checks の ${c?.key} の none は、その項目の選択肢の値にしてください`);
       // measure：この項目の下に出す部位・寸法（noteMeasures の種類）と、入れられる値（eq。例「有」）
       if (c?.measure != null) {
         const kinds = (cfg.noteMeasures?.kinds || []).map((k) => k?.key);
@@ -159,6 +161,7 @@ export function validateConfig(cfg) {
       }
     });
   // 詳しい診断の要否を、点検項目の並びの中（その項目の次）に出す（省略可）
+  need(cfg.initial?.fillNone == null || typeof cfg.initial.fillNone === 'boolean', 'initial.fillNone（「すべて無にする」で要否も「不」にする）は true か false にしてください');
   if (cfg.initial?.afterCheck != null)
     need(isArr(cfg.checks) && cfg.checks.some((c) => c?.key === cfg.initial.afterCheck && c.place !== 'measure'), 'initial.afterCheck は、計測の区切りに出さない点検項目のキーにしてください');
   if (cfg.numbering != null) validateNumbering(cfg.numbering, need); // 追加した木に番号を順に振る（省略可）
