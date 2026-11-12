@@ -35,14 +35,23 @@ export function pressOption(t, field, v, cfg) {
 }
 
 // 点検項目のうち、まだ選んでいない項目をすべて「無」にする（選んである項目・樹勢は変えない）
-//  「無」に当たる値は設定 noneValue（省略時「無」）。選択肢にその値がない項目は飛ばす
+//  「無」に当たる値は設定 noneValue（省略時「無」）。項目ごとに checks の none で変えられる（例 要否の項目は「不」）
+//  選択肢にその値がない項目は飛ばす。設定 initial.fillNone が true なら、詳しい診断の要否もまだなら initial.no にする
 //  返す形：{ tree, keys: [「無」にした項目…] }
 export function fillChecksNone(t, cfg) {
-  const none = cfg.noneValue || '無';
-  const keys = cfg.checks.map((c) => c.key).filter((k) => !t[k] && (cfg.options[k] || []).includes(none));
+  const noneOf = (c) => c.none || cfg.noneValue || '無';
+  const list = cfg.checks.map((c) => ({ key: c.key, v: noneOf(c) })).filter(({ key, v }) => !t[key] && (cfg.options[key] || []).includes(v));
+  if (cfg.initial?.fillNone && !t.initialNeeded) list.push({ key: 'initialNeeded', v: cfg.initial.no });
   let tree = t;
-  for (const k of keys) tree = pressOption(tree, k, none, cfg);
-  return { tree, keys };
+  for (const { key, v } of list) tree = pressOption(tree, key, v, cfg);
+  return { tree, keys: list.map((x) => x.key) };
+}
+
+// 「すべて無にする」のボタンの文（要否の項目なども入れるときは、その値も書く）
+export function checksNoneLabel(cfg) {
+  const none = cfg.noneValue || '無';
+  const others = [...new Set([...cfg.checks.map((c) => c.none).filter((v) => v && v !== none), ...(cfg.initial?.fillNone ? [cfg.initial.no] : [])])];
+  return `まだ選んでいない点検項目をすべて「${none}」${others.length ? `（要否などは「${others.join('・')}」）` : ''}にする`;
 }
 
 // 定型文・処置のボタン（入っていれば外す、なければ入れる）
