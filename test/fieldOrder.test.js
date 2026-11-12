@@ -98,3 +98,15 @@ describe('「すべて無にする」で要否の項目なども選ぶ（checks 
     expect(checksNoneLabel(base)).not.toMatch(/要否などは/);
   });
 });
+
+describe('足した計測の欄の並び（extraFields の newRow）', () => {
+  it('newRow の欄の前で行が半端なら空きを入れる', async () => {
+    const { extraCells } = await import('../src/ui/FormView.jsx');
+    const a = { key: 'a' };
+    const b = { key: 'b', newRow: true };
+    const c = { key: 'c' };
+    expect(extraCells([a, b, c])).toEqual([a, null, b, c]);
+    expect(extraCells([a, c, b])).toEqual([a, c, b]); // 行の頭なら空けない
+    expect(validateConfig({ ...cfg, extraFields: [{ key: 'xa', label: 'A', newRow: 'yes' }] }).ok).toBe(false);
+  });
+});

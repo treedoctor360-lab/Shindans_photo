@@ -129,6 +129,16 @@ function InitialBlock({ t, state, cfg, openInitial }) {
   );
 }
 
+// 足した計測の欄を2つずつの並びにする。newRow の欄の前で行が半端なら空き（null）を入れる
+export function extraCells(fields) {
+  const out = [];
+  for (const f of fields) {
+    if (f.newRow && out.length % 2 === 1) out.push(null);
+    out.push(f);
+  }
+  return out;
+}
+
 export default function FormView({ state, update, config: cfg, toast, send }) {
   const [showAllChips, setShowAllChips] = useState(false);
   const [missingAsk, setMissingAsk] = useState(null); // 保存しようとしたときの未入力の一覧
@@ -587,10 +597,14 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               )}
             </div>
           </div>
-          {/* 設定で足した計測の欄（extraFields。例 枝張り・枝下高）。2つずつ横に並べる。枝長・枝径の前に出す（野帳の並び） */}
+          {/* 設定で足した計測の欄（extraFields。例 枝張り・枝下高）。2つずつ横に並べる。枝長・枝径の前に出す（野帳の並び）
+              newRow: true の欄は新しい行から始める（例 枝下の歩道・車道を横に並べる。前の行の右は空ける） */}
           {(cfg.extraFields || []).length > 0 && (
             <div className="grid2" data-testid="extra-fields">
-              {cfg.extraFields.map((f) => (
+              {extraCells(cfg.extraFields).map((f, i) =>
+                !f ? (
+                  <div key={`gap${i}`} aria-hidden="true" />
+                ) : (
                 <div className="row" key={f.key}>
                   <label className="lbl" htmlFor={`f-x-${f.key}`}>
                     {f.label}
@@ -608,7 +622,8 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
                     {f.unit && <span>{f.unit}</span>}
                   </div>
                 </div>
-              ))}
+                ),
+              )}
             </div>
           )}
           {/* 計測の区切りに出す点検項目（checks の place: "measure"。例 傾斜） */}
