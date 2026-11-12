@@ -200,6 +200,7 @@ function validateExtraFields(list, cfg, need) {
     need(/^[A-Za-z][A-Za-z0-9]*$/.test(f.key), `extraFields の key「${f.key}」は英字で始まる英数字にしてください`);
     need(!taken.has(f.key), `extraFields の key「${f.key}」は、ほかの項目が使っている名前です`);
     need(!seen.has(f.key), `extraFields の key「${f.key}」が重なっています`);
+    need(f.newRow == null || typeof f.newRow === 'boolean', `extraFields の ${f.key} の newRow（新しい行から始める）は true か false にしてください`);
     seen.add(f.key);
     need(f.unit == null || typeof f.unit === 'string', `extraFields の ${f.key} の unit（単位）は文字にしてください`);
   });
