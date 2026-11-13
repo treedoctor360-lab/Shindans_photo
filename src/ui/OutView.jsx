@@ -9,7 +9,10 @@ import { buildPages, exportFieldSheet } from '../excel/fieldSheet.js';
 import { exportListSheet, listPages } from '../excel/listSheet.js';
 import { exportInitialBook } from '../excel/initialExport.js';
 import { exportKarte } from '../excel/karteExport.js';
-import { simpleKarteRecord } from '../core/simpleKarte.js';
+import { addKartePhotos } from '../excel/kartePhotos.js';
+import { segmentsOf, slotPhotos } from '../core/kartePhotoPlan.js';
+import { getKPhotoData, loadKPhotos } from '../store/kphotos.js';
+import { photoCaptionKey, simpleKarteRecord } from '../core/simpleKarte.js';
 import { gradeWriteBack, initialsForBook, karteRecords } from '../store/initial.js';
 import { loadInitialBookFile, loadKarteTemplateFile, loadLedgerFile, loadTemplate } from '../store/state.js';
 import { unsentCount, unsentList } from '../store/sync.js';
@@ -89,23 +92,67 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
 
   // 簡易診断のカルテ（設定 karte。提出用。今の公園・路線の入力済みの木。サーバーを使うときは確定した木だけ）
   const dbIds = new Set(db.trees.map((t) => t.id));
-  const simpleKarteTrees = shown.filter((t) => !useReview || withUnconfirmed || dbIds.has(t.id));
+  //  設定 karte.unconfirmedOk：確認の流れ（付箋・確定）を使わない業務では、確定していない木もそのまま出す
+  const karteAnyTree = !useReview || withUnconfirmed || !!cfg.karte?.unconfirmedOk;
+  const karteDraftMark = cfg.karte?.unconfirmedOk ? '' : draftMark;
+  const simpleKarteTrees = shown.filter((t) => karteAnyTree || dbIds.has(t.id));
   const onSimpleKarte = () =>
     run('簡易診断カルテ', async () => {
       const file = await loadKarteTemplateFile();
       if (!file) throw new Error('カルテの様式がありません。「設定」で読み込んでください');
       const recs = simpleKarteTrees.map((t) => simpleKarteRecord(t, cfg));
+      // 写真（設定 karte.photos。「写真」の画面で選んだもの）：見出しを記録に足し、写真の中身を読む
+      const pc = cfg.karte.photos;
+      const picsOf = new Map(); // 木の id → [{ slot, data, w, h }]
+      if (pc) {
+        const kp = await loadKPhotos(group);
+        const keyed = groupTrees.map((t) => ({ key: simpleKey(t, cfg), treeNo: toHalf(t.treeNo).trim() }));
+        const segOf = new Map();
+        for (const sg of segmentsOf(kp.photos, keyed).segments) if (sg.treeKey && !segOf.has(sg.treeKey)) segOf.set(sg.treeKey, sg);
+        for (let i = 0; i < simpleKarteTrees.length; i++) {
+          const t = simpleKarteTrees[i];
+          const key = simpleKey(t, cfg);
+          const sg = segOf.get(key);
+          if (!sg) continue;
+          const pics = [];
+          for (const x of slotPhotos(sg.photos, pc.slots, kp.picks[key] || {})) {
+            if (!x.photo) continue;
+            const d = await getKPhotoData(x.photo.id);
+            if (!d?.data) throw new Error(`${toHalf(t.treeNo)}：写真「${x.photo.name}」の中身がこの端末にありません。「写真」の画面で入れ直してください`);
+            pics.push({ slot: x.slot.key, data: new Uint8Array(d.data), w: x.photo.w, h: x.photo.h });
+            if (x.slot.caption) recs[i][photoCaptionKey(x.slot.caption)] = x.caption || '';
+          }
+          if (pics.length) picsOf.set(t.id, pics);
+        }
+      }
       const r = await exportKarte(file.buffer.slice(0), recs, cfg, cfg.karte, { submit: true });
       if (r.errors.length) return setCheck({ title: 'カルテの出力検査', errors: r.errors });
       if (!r.stats.sheets.length) return toast('カルテにする木がありませんでした');
+      // 写真を貼る（シートは樹木番号で探す。同じ番号の木が2本あるときは、どちらのシートか決められないので貼らない）
+      let photoNote = '';
+      if (picsOf.size) {
+        const items = [];
+        const unsure = [];
+        for (const t of simpleKarteTrees) {
+          if (!picsOf.has(t.id)) continue;
+          const no = toHalf(String(t.treeNo ?? '')).trim();
+          const hits = r.stats.sheets.filter((x) => x.treeNo === no);
+          if (hits.length === 1) items.push({ sheet: hits[0].name, pics: picsOf.get(t.id) });
+          else unsure.push(no || '(番号なし)');
+        }
+        const pr = await addKartePhotos(r.buffer, items, pc);
+        if (pr.errors.length) return setCheck({ title: 'カルテの写真の検査', errors: pr.errors });
+        r.buffer = pr.buffer;
+        photoNote = `。写真${pr.stats.photos}枚を${pr.stats.sheets}本に貼りました` + (unsure.length ? `（同じ番号の木があるため貼れなかった木：${unsure.join('・')}）` : '');
+      }
       const label = cfg.karte.fileLabel || 'カルテ';
       const nos = numberRanges(simpleKarteTrees.map((t) => t.treeNo));
       // ファイル名：「書式の名前_路線の表示名_番号-番号_日付」（表示名の頭の [道路] などは除く）
       const name = gname.replace(/^\[.*?\]\s*/, '');
-      download(`${safeName([label, name, nos].filter(Boolean).join('_')).replace(/\s+/g, '_')}${draftMark}_${yymmdd()}.xlsx`, r.buffer);
+      download(`${safeName([label, name, nos].filter(Boolean).join('_')).replace(/\s+/g, '_')}${karteDraftMark}_${yymmdd()}.xlsx`, r.buffer);
       setSimpleLong(r.stats.tooLong || []);
       toast(
-        `検査OK。${r.stats.sheets.length}本のカルテを作りました（1本1シート）` +
+        `検査OK。${r.stats.sheets.length}本のカルテを作りました（1本1シート）${photoNote}` +
           (r.stats.tooLong?.length ? `。文字を小さくしても枠に収まらない欄が${r.stats.tooLong.length}か所あります（画面の下に一覧）` : ''),
       );
     });
@@ -440,7 +487,7 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
           )}
           <p className="hint">
             {state.karteTemplateInfo
-              ? `入力済みの木を、カルテの様式に1本1シートで書き込みます${useReview && !withUnconfirmed ? '（確定した木だけ）' : ''}。写真は入りません。長い文は文字を小さくし、様式の行の高さは変えません。保存する前に、書き出したファイルを読み直して照合します。`
+              ? `入力済みの木を、カルテの様式に1本1シートで書き込みます${karteAnyTree ? '' : '（確定した木だけ）'}。${cfg.karte.photos ? '「写真」の画面で選んだ写真を、枠に合わせて貼ります。' : '写真は入りません。'}長い文は文字を小さくし、様式の行の高さは変えません。保存する前に、書き出したファイルを読み直して照合します。`
               : '先に「設定」でカルテの様式を読み込んでください。'}
           </p>
         </div>

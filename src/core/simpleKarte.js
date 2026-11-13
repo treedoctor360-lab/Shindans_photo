@@ -8,6 +8,7 @@
 //    @dateSerial   … 調査日を Excel の日付の数にしたもの（様式の日付の表示形式で見せる）
 //    @check:項目   … その点検項目の部位・寸法（checks の measure）の文と、「有」のとき入れた項目の値（この順）
 //    @notes        … 特記事項（文字の欄の文と、点検項目に付けていない寸法の1行。行の頭の「・」は付けない）
+//    @photoCaption1〜 … 写真の見出し（設定 karte.photos の枠の caption の番号。写真を選んだ木だけ）
 //  寸法の文の形は karte.measureLine（{text}・{place}・{kind}。既定「{text} {place}」。noteMeasures.hidePlaces の部位は書かない）
 //  1つの項目に2つ以上あるときのつなぎは karte.checkJoin（既定「／」）、特記事項の行のつなぎは karte.notesJoin（既定は全角の空白）
 import { branchRatioRaw, girthOf } from './calc.js';
@@ -16,6 +17,8 @@ import { blankTree, isFelled, isLocked } from './tree.js';
 
 export const SIMPLE_KARTE_CALC = ['@girth', '@branchRatio', '@dateSerial', '@notes'];
 const checkKey = (key) => `@check:${key}`;
+// 写真の見出しの項目の名前（i：karte.photos の枠の caption の番号。出力のときに OutView が記録に足す）
+export const photoCaptionKey = (i) => `@photoCaption${i}`;
 const str = (v) => String(v ?? '').trim();
 const round2 = (x) => Math.round(x * 100) / 100;
 
@@ -30,6 +33,7 @@ export function simpleKarteKeys(cfg) {
   for (const f of cfg.extraFields || []) keys.add(f.key);
   for (const k of cfg.dbFormat?.infoKeys || []) keys.add(k);
   for (const k of SIMPLE_KARTE_CALC) keys.add(k);
+  for (let i = 1; i <= 9; i++) keys.add(photoCaptionKey(i)); // 写真の見出し（karte.photos の枠の caption の番号）
   return keys;
 }
 
