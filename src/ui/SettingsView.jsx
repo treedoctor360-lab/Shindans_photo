@@ -1,5 +1,7 @@
 // 設定画面：調査情報、設定ファイル・野帳の原本・台帳の読み込み
 import { useState } from 'react';
+import { importEntrySheets } from '../core/entrySheet.js';
+import { readEntrySheets } from '../excel/entrySheetRead.js';
 import { bookCount } from '../store/initial.js';
 import { idbPut } from '../store/idb.js';
 import { needsNewWorkspace, rememberTitle, putConfigInWorkspace } from '../store/workspace.js';
@@ -80,6 +82,27 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
     await saveTemplate(file.name, await file.arrayBuffer());
     update((st) => ({ ...st, templateName: file.name }));
     toast('野帳の原本を読み込みました');
+  };
+
+  // 入力表（Excel。1本1行。紙の野帳を写した表）を読み込んで、木にする（設定 entrySheet）
+  const [entryResult, setEntryResult] = useState(null); // { stats, errors }
+  const onEntrySheet = async (file) => {
+    setBusy(true);
+    try {
+      const sheets = await readEntrySheets(await file.arrayBuffer(), config);
+      let r;
+      // 読み終わってから、その時点の最新の状態に足す（読んでいる間に届いた変更を上書きしないように）
+      await update((st) => {
+        r = importEntrySheets(st, config, sheets);
+        return r.state;
+      }, { now: true });
+      setEntryResult({ stats: r.stats, errors: r.errors });
+      toast(r.stats.added.length ? `${r.stats.added.length}本を読み込みました` + (r.stats.check.length ? `（うち${r.stats.check.length}本は確かめてください）` : '') : '読み込む木がありませんでした');
+    } catch (e) {
+      toast(`入力表を読めませんでした：${e.message}`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onLedger = async (file) => {
@@ -227,6 +250,32 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
         </div>
         <FileButton label="野帳の原本（Excel）を読み込む" accept=".xlsx" onFile={onTemplate} testId="template-file" />
       </div>
+
+      {config?.entrySheet && (state.user?.role || 'surveyor') === 'surveyor' && (
+        <div className="sec" data-testid="entry-sheet-sec">
+          <h2>入力表（紙の野帳を写した Excel）</h2>
+          <FileButton label={busy ? '読み込み中…' : '入力表（Excel）を読み込む'} accept=".xlsx" onFile={onEntrySheet} disabled={busy} testId="entry-sheet-file" />
+          <p className="hint">
+            1本1行の入力表から木を作ります。すでにある番号の木は読み込みません（上書きしません）。備考の略記は寸法や特記事項に直します。読み取れなかった所がある木は「入力中」のままにするので、開いて確かめてから保存してください。
+          </p>
+          {entryResult && (
+            <div className="alert warn" data-testid="entry-sheet-result">
+              <span>
+                読み込んだ木：{entryResult.stats.added.length}本
+                {entryResult.stats.skipped.length > 0 && `／すでにあったので読み込まなかった木：${entryResult.stats.skipped.length}本（${entryResult.stats.skipped.slice(0, 10).join('・')}${entryResult.stats.skipped.length > 10 ? 'ほか' : ''}）`}
+              </span>
+              {entryResult.errors.map((e) => <span key={e}>{e}</span>)}
+              {entryResult.stats.check.length > 0 && <span>確かめる木（入力中のままにしました）：</span>}
+              {entryResult.stats.check.slice(0, 40).map((c) => (
+                <span key={`${c.sheet}|${c.treeNo}`}>
+                  ・{c.sheet} {c.treeNo}：{c.why.join('／')}
+                </span>
+              ))}
+              {entryResult.stats.check.length > 40 && <span>ほか{entryResult.stats.check.length - 40}本</span>}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="sec">
         <h2>台帳（樹木の一覧表）</h2>

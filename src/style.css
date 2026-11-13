@@ -42,7 +42,7 @@ button{cursor:pointer}
 
 /* 下部タブ */
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
-.tabs-in{max-width:520px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr)}
+.tabs-in{max-width:520px;margin:0 auto;display:grid;grid-auto-flow:column;grid-auto-columns:1fr}
 .tab{background:none;border:0;padding:10px 4px 12px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px}
 .tab b{font-size:15px}
 .tab.on{color:var(--accent);font-weight:700;box-shadow:inset 0 3px 0 var(--accent)}
@@ -434,3 +434,20 @@ fieldset.form-body:disabled button:not(.seg-b):not(.chip){opacity:.3}
 .app.desk.compact .tree-bar .btn{min-height:34px;padding:2px 8px}
 /* 出力：内勤さんに渡す Excel の公園・路線の選択 */
 .handoff-groups{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+
+/* 写真の画面（カルテに貼る写真を選ぶ） */
+.kp-drop{display:flex;align-items:center;justify-content:center;min-height:84px;border:2px dashed var(--line);border-radius:10px;background:var(--sunk);padding:12px;text-align:center;cursor:pointer}
+.kp-drop.over{border-color:var(--accent);background:var(--surface)}
+.kp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:8px}
+.kp-item{display:flex;flex-direction:column;gap:2px}
+.kp-img{position:relative;display:flex;align-items:center;justify-content:center;aspect-ratio:1/1;border:2px solid var(--line);border-radius:8px;background:var(--sunk);padding:0;overflow:hidden;cursor:pointer}
+.kp-img img{max-width:100%;max-height:100%;display:block}
+.kp-item.on .kp-img{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.kp-badge{position:absolute;left:4px;top:4px;background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:1px 6px;font-size:12px;font-weight:700}
+.kp-cap{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)}
+.kp-x{border:1px solid var(--line);background:var(--surface);border-radius:6px;font-size:11px;padding:1px 6px;cursor:pointer}
+.kp-tree{border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.kp-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.kp-num{height:56px;border-radius:6px;border:1px solid var(--line)}
+.kp-caption{display:flex;align-items:center;gap:6px;font-size:13px}
+.kp-caption input{flex:1;min-width:0}

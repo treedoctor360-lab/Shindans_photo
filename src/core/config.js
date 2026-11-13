@@ -10,6 +10,7 @@ import { validateKarte } from './karteCells.js';
 import { simpleKarteKeys } from './simpleKarte.js';
 import { validateFromMeasures, validateNoteMeasures } from './noteMeasures.js';
 import { validateWording } from './wording.js';
+import { validateEntrySheet } from './entrySheet.js';
 
 // このアプリが読める設定の版。形式を変えたら上げる
 export const CONFIG_VERSION = 6; // 2: dbFormat（台帳の列）/ 3: 一覧表への書き戻し / 4: fieldSheet（野帳）/ 5: 入力画面の選択肢 / 6: initialSurvey（詳しい診断のデータ入力用ブック。省略可）
@@ -174,6 +175,10 @@ export function validateConfig(cfg) {
     validateKarte(cfg.karte, () => simpleKarteKeys(cfg), siteTypes, need, 'karte', ['simple']);
     need(cfg.karte?.measureLine == null || (typeof cfg.karte.measureLine === 'string' && cfg.karte.measureLine.includes('{text}')), 'karte.measureLine は {text} を含む文字にしてください');
     for (const k of ['checkJoin', 'notesJoin']) need(cfg.karte?.[k] == null || typeof cfg.karte[k] === 'string', `karte.${k}（つなぎの文字）は文字にしてください`);
+    // 確定していない木もカルテに出す（確認の流れを使わない業務。省略可）
+    need(cfg.karte?.unconfirmedOk == null || typeof cfg.karte.unconfirmedOk === 'boolean', 'karte.unconfirmedOk は true か false にしてください');
+    // カルテに貼る写真の枠（省略可）：{ slots: [{ key, label, range, caption? }], pad?, charPx?, maxPx?, numberLabel? }
+    if (cfg.karte?.photos != null) validateKartePhotos(cfg.karte.photos, need);
   }
   // まとまりを名前のほかの項目でも分ける（省略可。例 路線番号・区域）
   if (isArr(cfg.dbFormat?.sheets))
@@ -183,8 +188,27 @@ export function validateConfig(cfg) {
       need(isArr(sh.identifyAlso) && sh.identifyAlso.every((k) => keys.includes(k) && k !== sh.identify), `dbFormat.sheets の ${sh.type} の identifyAlso は、名前の項目以外の dbFormat.infoKeys の項目の一覧にしてください`);
     });
   if (cfg.addGroups != null) validateAddGroups(cfg.addGroups, cfg, need); // まとまり（公園・路線）を現地で足す（省略可）
+  if (cfg.entrySheet != null) validateEntrySheet(cfg.entrySheet, cfg, need); // 入力表（Excel。1本1行）の読み込み（省略可）
 
   return { ok: e.length === 0, errors: e };
+}
+
+// カルテに貼る写真の枠（karte.photos）
+//  slots：[{ key, label, range（枠のセルの範囲 "Q4:V16"）, caption?（見出しを書く記録の項目の番号 1〜）, full?（全景の枠。縦の写真を自動で入れる） }]
+function validateKartePhotos(p, need) {
+  if (!need(isObj(p) && isArr(p.slots) && p.slots.length > 0, 'karte.photos は { slots: [{ key, label, range }] } の形にしてください')) return;
+  const keys = new Set();
+  p.slots.forEach((s, i) => {
+    const at = `karte.photos.slots[${i}]`;
+    if (!need(isObj(s) && isStr(s.key) && isStr(s.label) && /^[A-Z]+\d+(:[A-Z]+\d+)?$/.test(s.range || ''), `${at} は { key, label, range（例 "Q4:V16"） } の形にしてください`)) return;
+    need(!keys.has(s.key), `${at}.key が重複しています`);
+    keys.add(s.key);
+    need(s.caption == null || (Number.isInteger(s.caption) && s.caption >= 1 && s.caption <= 9), `${at}.caption（見出しの番号）は 1〜9 の整数にしてください`);
+    need(s.full == null || typeof s.full === 'boolean', `${at}.full は true か false にしてください`);
+  });
+  need(p.slots.filter((s) => s?.full).length <= 1, 'karte.photos.slots の full（全景の枠）は1つだけにしてください');
+  for (const k of ['pad', 'charPx', 'maxPx']) need(p[k] == null || (typeof p[k] === 'number' && p[k] >= 0), `karte.photos.${k} は 0 以上の数にしてください`);
+  need(p.captions == null || (isArr(p.captions) && p.captions.every(isStr)), 'karte.photos.captions（見出しの候補）は文字の一覧にしてください');
 }
 
 // 計測に足す欄（例 枝張り・枝下高）。木の記録に、その key の名前で値を持つ

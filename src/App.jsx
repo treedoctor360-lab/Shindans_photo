@@ -5,6 +5,7 @@ import FormView from './ui/FormView.jsx';
 import InitialView from './surveys/initial/InitialView.jsx';
 import ListView, { activeGroup } from './ui/ListView.jsx';
 import OutView from './ui/OutView.jsx';
+import PhotoView from './ui/PhotoView.jsx';
 import SettingsView from './ui/SettingsView.jsx';
 import { useAppState } from './ui/useAppState.js';
 import { useTopHeight } from './ui/useTopHeight.js';
@@ -183,6 +184,7 @@ export default function App() {
         {state.view === 'list' && <ListView {...app} toast={toast} />}
         {state.view === 'form' && <FormView key={state.currentId} {...app} toast={toast} />}
         {state.view === 'initial' && <InitialView key={state.initialTreeId} {...app} toast={toast} />}
+        {state.view === 'photo' && <PhotoView {...app} toast={toast} />}
         {state.view === 'out' && <OutView {...app} toast={toast} />}
       </main>
       )}
@@ -190,7 +192,7 @@ export default function App() {
 
       <nav className="tabs">
         <div className="tabs-in">
-          {TABS.map(([k, label]) => (
+          {TABS.flatMap((x) => (x[0] === 'out' && app.config?.karte?.photos ? [['photo', '写真'], x] : [x])).map(([k, label]) => (
             <button key={k} type="button" className={`tab${state.view === k ? ' on' : ''}`} onClick={() => go(k)}>
               <b>{label}</b>
             </button>

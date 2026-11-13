@@ -497,6 +497,15 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               <option key={s} value={s} />
             ))}
           </datalist>
+          {/* 入力表から読み込んだ木で、備考の読み取れなかった部分（src/core/entrySheet.js）。確かめて入力したら消す */}
+          {t.entryLeft && (
+            <div className="alert warn" data-testid="entry-left">
+              <span>入力表の備考で読み取れなかった部分：{t.entryLeft}</span>
+              <button type="button" className="btn" onClick={() => setField('entryLeft', '')} data-testid="entry-left-clear">
+                確かめた（この知らせを消す）
+              </button>
+            </div>
+          )}
           {/* 伐採済み（設定 felled）：押すと点検項目・要否・樹勢を空欄にし、入力を止める（未入力にも数えない）。もう一度押すと戻す */}
           {cfg.felled && (
             <div className="row">
