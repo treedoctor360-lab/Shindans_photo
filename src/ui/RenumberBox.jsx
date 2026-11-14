@@ -2,15 +2,37 @@
 //  例 1番より前に抜けていた木を「この木の前に木を追加」で入れたあと、入れた木を 1〜、元の 1 を 6 にする
 //  押すと変わる番号の一覧を見せ、「振り直す」で決める。変わった入力済みの木はサーバーへ送り直す
 import { useState } from 'react';
-import { renumberGroup } from '../store/actions.js';
+//  もう1つのボタン「番号の順に並べ直す」：番号は変えずに、並びを番号の順にする（例 後から読み込んだ木が最後に並んだとき）
+import { renumberGroup, sortGroupByNumber } from '../store/actions.js';
 import { toHalf } from '../core/text.js';
 
 export default function RenumberBox({ state, cfg, update, send, toast, groupName }) {
   const [plan, setPlan] = useState(null); // { changes, error }（確かめ中）
+  const [sortPlan, setSortPlan] = useState(null); // { moved }（並べ直しを確かめ中）
+  const openSort = () => {
+    const r = sortGroupByNumber(state, cfg);
+    if (r.error) return toast(r.error);
+    if (!r.moved.length) return toast('並びはもう番号の順です');
+    setPlan(null);
+    setSortPlan(r);
+  };
+  const applySort = () => {
+    let res = null;
+    update((cur) => {
+      res = sortGroupByNumber(cur, cfg, new Date().toISOString()); // その時点の最新の状態で並べ直す
+      return res.error ? cur : res.state;
+    }, { now: true }).then(() => {
+      if (res?.error) toast(res.error);
+      else toast(`${res.moved.length}本の位置を番号の順に直しました`);
+      send?.();
+    });
+    setSortPlan(null);
+  };
   const open = () => {
     const r = renumberGroup(state, cfg);
     if (r.error) return toast(r.error);
     if (!r.changes.length) return toast('番号はもう並び順です');
+    setSortPlan(null);
     setPlan(r);
   };
   const apply = () => {
@@ -28,10 +50,33 @@ export default function RenumberBox({ state, cfg, update, send, toast, groupName
   const name = (c) => (c.from ? toHalf(c.from) : '番号なし');
   return (
     <div className="sec" data-testid="renumber-box">
-      {!plan ? (
-        <button type="button" className="btn" onClick={open} data-testid="renumber-open">
-          番号を並び順に振り直す（{groupName}）
-        </button>
+      {sortPlan ? (
+        <div className="alert info" data-testid="sort-plan">
+          <span>
+            {groupName}の並びを、番号の順に並べ直します（位置が変わる木{sortPlan.moved.length}本）。番号は変えません。番号のない木は、すぐ前の木と一緒に動きます。並びが変わった入力済みの木はサーバーへ送り直し、確定していた木は確定が外れます。
+          </span>
+          <div className="hint" data-testid="sort-list">
+            位置が変わる木：{sortPlan.moved.slice(0, 40).map((n) => toHalf(n)).join('、')}
+            {sortPlan.moved.length > 40 ? `ほか${sortPlan.moved.length - 40}本` : ''}
+          </div>
+          <div className="acts">
+            <button type="button" className="btn" onClick={() => setSortPlan(null)}>
+              やめる
+            </button>
+            <button type="button" className="btn fill" onClick={applySort} data-testid="sort-apply">
+              並べ直す
+            </button>
+          </div>
+        </div>
+      ) : !plan ? (
+        <div className="btn-row">
+          <button type="button" className="btn" onClick={open} data-testid="renumber-open">
+            番号を並び順に振り直す（{groupName}）
+          </button>
+          <button type="button" className="btn" onClick={openSort} data-testid="sort-open">
+            番号の順に並べ直す（{groupName}）
+          </button>
+        </div>
       ) : (
         <div className="alert info" data-testid="renumber-plan">
           <span>

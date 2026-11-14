@@ -9,6 +9,7 @@ import { blankTree, isDead } from '../core/tree.js';
 import { photoPlan } from '../core/photo.js';
 import { placeAdded } from './order.js';
 import { afterSameGroup, simpleKey } from './surveys.js';
+import { importEntrySheets } from '../core/entrySheet.js';
 
 // 表示中のまとまりの木
 export const currentGroupTrees = (state, cfg) => treesOfGroup(state.trees, state.group, cfg);
@@ -228,6 +229,67 @@ function unlink(trees, cfg, gone, now) {
     return v;
   };
   return trees.map((t) => (gone.includes(t) || !unbound(t) || !map.has(t.after || '') ? t : relinked(t, resolve(t.after), now)));
+}
+
+// ---------- 番号の順に並べる（入力表の読み込み・並べ直し） ----------
+
+// 番号を数として読む（「12」「12.0」）。数字だけでない番号（空・「12-1」など）は null
+const numOf = (t) => {
+  const s = toHalf(t.treeNo || '').trim();
+  return /^\d+(\.\d+)?$/.test(s) ? Number(s) : null;
+};
+
+// 木 t を、同じまとまりの「番号の順」の位置に入れる（t は trees に入っていないこと）
+//  今の並びで最初に出てくる「t より番号が大きい木」の直前に入れる（その前の木の次。after でつなぐので、受け取った端末でも同じ並び）
+//  番号のない木・削除した木は、前の木の続きとしてそのまま。大きい木がなければ、まとまりの最後（今までどおり）
+//  例 1〜38 と 77〜106 がある路線に 39〜76 を読み込むと、38 と 77 の間に入る
+export function placeByNumber(trees, cfg, t, now) {
+  const g = treesOfGroup(trees, groupKey(t, cfg), cfg);
+  const n = numOf(t);
+  const next = n == null ? null : g.find((x) => !x.deleted && numOf(x) != null && numOf(x) > n);
+  if (!next) {
+    const at = afterSameGroup(trees, t, cfg);
+    return [...trees.slice(0, at), t, ...trees.slice(at)];
+  }
+  const prev = g[g.indexOf(next) - 1];
+  if (prev) return placeAdded(linkAfter([...trees, t], cfg, t, prev, now), cfg);
+  // まとまりの先頭に入れる
+  const at = trees.indexOf(next);
+  return linkFirst([...trees.slice(0, at), t, ...trees.slice(at)], cfg, t, next, now);
+}
+
+// 入力表（Excel）を読み込み、木を番号の順の位置に入れる（src/core/entrySheet.js。設定の画面から）
+export const importEntry = (state, cfg, sheets, now = Date.now()) =>
+  importEntrySheets(state, cfg, sheets, now, { place: (trees, t) => placeByNumber(trees, cfg, t, now) });
+
+// 今の公園・路線の並びを、番号の順に並べ直す（番号は変えない。調査者だけ）
+//  例 後から読み込んだ 39〜76 が 106 の後ろに並んでしまったのを、38 と 77 の間へ
+//  番号のない木（途中に差し込んだ木）・削除した木は、前の木の続きとして一緒に動かす。同じ番号の木は今の並びのまま
+//  並びは after（次に置く木の鍵）のつながりとして持つので、並びが変わった入力済みの木はサーバーへ送り直す
+//  一覧表の行に結び付いた木があるまとまりはしない（一覧表の並びに従うため）
+//  返す形：{ state, moved: [番号…]（位置が変わる木）, error }
+export function sortGroupByNumber(state, cfg, now) {
+  const g = currentGroupTrees(state, cfg);
+  if (g.some((t) => !unbound(t))) return { state, moved: [], error: '一覧表の行に結び付いた木があるため、並べ直せません' };
+  // 番号のある木を頭に、後ろに続く番号のない木・削除した木をひとかたまりにする
+  const blocks = [];
+  for (const t of g) {
+    if (!blocks.length || (!t.deleted && numOf(t) != null)) blocks.push([t]);
+    else blocks.at(-1).push(t);
+  }
+  const head = (b) => (b[0].deleted ? null : numOf(b[0]));
+  const sorted = blocks
+    .map((b, i) => ({ b, i }))
+    .sort((x, y) => (head(x.b) ?? -Infinity) - (head(y.b) ?? -Infinity) || x.i - y.i) // 番号のない先頭のかたまりは先頭のまま
+    .flatMap((x) => x.b);
+  const moved = sorted.filter((t, i) => t !== g[i] && !t.deleted).map((t) => t.treeNo || '番号なし');
+  if (!moved.length) return { state, moved, error: '' };
+  // 並べた順に after をつなぐ（先頭の木は after なし）
+  const relinkedList = sorted.map((t, i) => relinked(t, i ? simpleKey(sorted[i - 1], cfg) : '', now));
+  const rest = state.trees.filter((t) => !g.includes(t));
+  const at = state.trees.indexOf(g[0]); // まとまりの最初の木より前の木は、まとまりの木ではない
+  const trees = placeAdded([...rest.slice(0, at), ...relinkedList, ...rest.slice(at)], cfg);
+  return { state: { ...state, trees }, moved, error: '' };
 }
 
 // ---------- 番号を並び順に振り直す・別のまとまり（路線）へ移す ----------
