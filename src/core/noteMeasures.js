@@ -10,7 +10,7 @@
 //              photo：その1行があるときに撮る弱点写真の名前（{place} で部位を入れられる）。fullOnly：true なら全景だけ要る
 //              db：その1行があるときに一覧表用の特記に入れる言い回し（{place} で部位。notes.js の autoDbNote）
 //   line   … 1行の形（省略時「{place}の{kind}：{text}」）
-// 作った1行は特記事項（野帳）に足すだけで、ほかの項目は変えない。足した後は手で直せる。
+// 作った1行は特記事項（野帳）に足すだけで、ほかの項目は変えない。足した後は、出す文を手で直せる（記録の text。数字は残す）。
 // 足した1行の元の数字は木の measures に残し、詳しい診断の記録を作るときに弱点の詳細へ写す
 // （設定 initialSurvey.fromMeasures。measuresToInitial）。
 
@@ -66,15 +66,20 @@ export function activeMeasures(tree) {
 export function measuresWithLines(tree, cfg) {
   const ms = activeMeasures(tree);
   if (!isMeasuresV2(tree)) return ms;
-  const one = (m) => ({ ...m, line: measureLine(cfg, m.kind, m.place, m.values) });
+  const one = (m) => ({ ...m, line: noteLineOf(cfg, m) });
   if (!cfg.noteMeasures?.merge) return ms.map(one).filter((m) => m.line);
   const groups = new Map();
+  const out = [];
   for (const m of ms) {
+    // 手で直した文の寸法は、まとめずにその文のまま1行にする
+    if (manualTextOf(m)) {
+      out.push(one(m));
+      continue;
+    }
     const k = `${m.kind}|${m.place || ''}`;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(m);
   }
-  const out = [];
   for (const g of groups.values()) {
     const kind = kindOf(g[0].kind, cfg);
     const texts = g.map((m) => measureText(cfg, m.kind, m.values)).filter(Boolean);
@@ -133,6 +138,9 @@ export function toMeasuresV2(tree, cfg) {
 export const putMeasure = (tree, cfg, rec, i = -1) => {
   const t = toMeasuresV2(tree, cfg);
   const m = { kind: rec.kind, place: rec.place || '', values: rec.values };
+  // 手で直した文（rec.text）を渡されたら残す。そのときの「数字から作った文」も一緒に覚える
+  const text = manualTextOf(rec);
+  if (text) Object.assign(m, { text, textAuto: autoWording(cfg, m) });
   const ms = [...t.measures];
   if (i >= 0 && i < ms.length) ms[i] = m;
   else ms.push(m);
@@ -205,6 +213,54 @@ export function sentenceOf(cfg, kind, place, values) {
 export const measureText = (cfg, kindKey, values) => buildText(values, measureParts(kindKey, cfg), cfg.noteMeasures?.join ?? '、');
 const lineOf = (cfg, kind, place, text) =>
   (kind.line || cfg.noteMeasures.line || '{place}の{kind}：{text}').replace('{place}', shownPlace(cfg, place)).replace('{kind}', kind.label).replace('{text}', text);
+
+// ---------- 手で直した文 ----------
+//  寸法の記録の text：数字から作った文（部位と寸法の部分。文の形（sentence）の種類は1文まるごと）を、人が書き換えたもの。
+//  text があれば、野帳・カルテ・一覧にはその文を出す（数字は消さず、詳しい診断への引き継ぎなどに今までどおり使う）。
+//  textAuto：書き換えたときに数字から作られていた文。後で数字を直したときに、文を作り直すかを聞くために覚える
+export const manualTextOf = (m) => String(m?.text ?? '').trim();
+
+// 数字から作る文（手で直す前の形）。文の形の種類は1文まるごと、ほかは「部位と寸法」（カルテの点検項目の欄に書く形）
+//  種類・（部位を選ぶ種類なら）部位が選ばれていない、または数字が何もなければ空
+export function autoWording(cfg, m) {
+  const kind = kindOf(m?.kind, cfg);
+  if (!kind) return '';
+  const needPlace = measurePlaces(m.kind, cfg).length > 0;
+  if (needPlace && !m.place) return '';
+  if (kind.sentence) return sentenceOf(cfg, kind, needPlace ? m.place : '', m.values);
+  const text = measureText(cfg, m.kind, m.values);
+  if (!text) return '';
+  return (cfg.karte?.measureLine ?? '{text} {place}')
+    .replace('{text}', text)
+    .replace('{place}', needPlace ? shownPlace(cfg, m.place) : '')
+    .replace('{kind}', kind.label)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// 出す文（手で直した文があればそれ、なければ数字から作る文）
+export const wordingOf = (cfg, m) => manualTextOf(m) || autoWording(cfg, m);
+
+// 野帳などに出す1行。手で直した文は、文の形の種類ならそのまま、ほかは「種類：文」（部位は文の中に書いてある）
+export function noteLineOf(cfg, m) {
+  const text = manualTextOf(m);
+  if (!text) return measureLine(cfg, m.kind, m.place, m.values);
+  const kind = kindOf(m.kind, cfg);
+  if (!kind) return '';
+  return kind.sentence ? text : `${kind.label}：${text}`;
+}
+
+// 出す文を手で直す（i：記録の番号）。空にするか、数字から作る文と同じにすると、手で直した印を外す（数字から作る文に戻る）
+export function setMeasureText(tree, cfg, i, text) {
+  const t = toMeasuresV2(tree, cfg);
+  const m = t.measures[i];
+  if (!m) return t;
+  const { text: _old, textAuto: _oldAuto, ...rest } = m;
+  const auto = autoWording(cfg, rest);
+  const v = String(text ?? '').replace(/\s+/g, ' ').trim();
+  const next = !v || v === auto ? rest : { ...rest, text: v, textAuto: auto };
+  return { ...t, measures: t.measures.map((x, j) => (j === i ? next : x)) };
+}
 
 // 丸数字（①〜⑳。それより多ければ「(21)」）
 const circled = (i) => (i < 20 ? String.fromCharCode(0x2460 + i) : `(${i + 1})`);

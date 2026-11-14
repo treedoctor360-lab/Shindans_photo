@@ -69,6 +69,30 @@ test('寸法を入れる：部位・種類を選んで数字を入れ、寸法�
   await box.locator('[data-testid=measure-add]').click();
   await expect(box).toHaveCount(0);
   await expect(page.locator('[data-testid=measure-line]').first()).toHaveText('幹の腐朽：地上3m、20cm×50cm、110/150（芯達）');
+  // 文を直す：数字から作った文が入った欄が開く → 書き換えると一覧の1行が「種類：直した文」になる（数字は残る）
+  await page.locator('[data-testid=measure-text-edit]').first().click();
+  const tbox = page.locator('[data-testid=measure-text]');
+  await expect(tbox.locator('[data-testid=measure-text-input]')).toHaveValue('地上3m、20cm×50cm、110/150（芯達） 幹');
+  await tbox.locator('[data-testid=measure-text-input]').fill('根元に近い所 20cm×50cm');
+  await tbox.locator('[data-testid=measure-text-ok]').click();
+  await expect(tbox).toHaveCount(0);
+  await expect(page.locator('[data-testid=measure-line]').first()).toHaveText('腐朽：根元に近い所 20cm×50cm');
+  await expect(page.locator('[data-testid=measure-manual]')).toHaveCount(1);
+  // 数字を直すと、文を作り直すか聞く（黙って上書きしない）。「手で直した文のまま」なら文は変わらない
+  await page.locator('[data-testid=measure-edit]').first().click();
+  await expect(box.locator('[data-part="height.a"]')).toHaveValue('3');
+  await box.locator('[data-part="height.a"]').fill('4');
+  await box.locator('[data-testid=measure-add]').click();
+  await expect(box.locator('[data-testid=measure-ask-keep]')).toBeVisible();
+  await box.locator('[data-testid=measure-text-keep]').click();
+  await expect(box).toHaveCount(0);
+  await expect(page.locator('[data-testid=measure-line]').first()).toHaveText('腐朽：根元に近い所 20cm×50cm');
+  // 「数字から作った文に戻す」で、直した数字の文になる
+  await page.locator('[data-testid=measure-text-edit]').first().click();
+  await expect(tbox.locator('[data-testid=measure-text-auto]')).toContainText('地上4m、20cm×50cm');
+  await tbox.locator('[data-testid=measure-text-reset]').click();
+  await expect(page.locator('[data-testid=measure-line]').first()).toHaveText('幹の腐朽：地上4m、20cm×50cm、110/150（芯達）');
+  await expect(page.locator('[data-testid=measure-manual]')).toHaveCount(0);
   // 消す（確かめてから）
   await page.locator('[data-testid=measure-remove]').nth(1).click();
   await page.click('[data-testid=measure-remove-ok]');

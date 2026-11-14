@@ -5,7 +5,7 @@ import JSZip from 'jszip';
 import cfgJson from './fixtures/sample-config.json';
 import { validateConfig } from '../src/core/config.js';
 import { blankTree } from '../src/core/tree.js';
-import { putMeasure } from '../src/core/noteMeasures.js';
+import { putMeasure, setMeasureText } from '../src/core/noteMeasures.js';
 import { excelDate, simpleKarteRecord } from '../src/core/simpleKarte.js';
 import { exportKarte } from '../src/excel/karteExport.js';
 
@@ -36,6 +36,18 @@ describe('簡易診断のカルテ', () => {
     expect(excelDate('1900-03-01')).toBe(61); // Excel の日付の数（1900/3/1 は 61）
     expect(r['@check:decay']).toBe('地上0～0.2m、20cm×20cm 根株');
     expect(r['@notes']).toBe('自由な記録　幹の打診音異常：地上1m');
+  });
+
+  it('寸法の文を手で直してあれば、点検項目の欄・特記事項にその文を書く', () => {
+    let t = tree(3, { decay: '有' });
+    t = putMeasure(t, cfg, { kind: 'decay', place: '根株', values: { size: [{ w: '10', h: '4' }] } }, -1);
+    t = putMeasure(t, cfg, { kind: 'tap', place: '幹', values: { height: { a: '1' } } }, -1);
+    expect(simpleKarteRecord(t, cfg)['@check:decay']).toBe('10cm×4cm 根株');
+    t = setMeasureText(t, cfg, 0, '地際 10cm×4cm');
+    t = setMeasureText(t, cfg, 1, '幹の下の方');
+    const r = simpleKarteRecord(t, cfg);
+    expect(r['@check:decay']).toBe('地際 10cm×4cm');
+    expect(r['@notes']).toBe('打診音異常：幹の下の方'); // 項目に付けていない寸法は「種類：文」
   });
 
   it('書き出し：1本1シート（番号の数の順）、□を■に、印は入れず、照合を通る', async () => {
