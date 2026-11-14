@@ -453,3 +453,41 @@ fieldset.form-body:disabled button:not(.seg-b):not(.chip){opacity:.3}
 .kp-num{height:56px;border-radius:6px;border:1px solid var(--line)}
 .kp-caption{display:flex;align-items:center;gap:6px;font-size:13px}
 .kp-caption input{flex:1;min-width:0}
+
+/* 写真の画面：選んで外す・選んでいる木の情報（横の欄。狭い画面では下半分） */
+.kp-selbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.kp-selbar>span{flex:1 1 260px}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.kp-item.sel .kp-img{border-color:var(--danger);box-shadow:0 0 0 2px var(--danger)}
+.kp-check{position:absolute;right:4px;top:4px;width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.35);color:#fff;font-weight:700;font-size:14px;line-height:18px;text-align:center}
+.kp-check.on{background:var(--danger)}
+.kp-split{display:flex;flex-direction:column;gap:12px}
+.kp-trees{display:flex;flex-direction:column;gap:12px;min-width:0}
+.kp-tree.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.kp-info-btn{min-height:32px;padding:2px 10px}
+.kp-info{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kp-info-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--sunk)}
+.kp-info-bar>b{margin-right:auto}
+.kp-info-bar .seg-b{min-height:32px;padding:2px 10px}
+.kp-info-bar .btn{min-height:32px;padding:2px 10px}
+.kp-info-body{flex:1;overflow:auto;padding:8px 12px;font-size:14px;display:flex;flex-direction:column;gap:6px}
+.kp-info-body p,.kp-info-body h4{margin:0}
+.kp-info-body h4{font-size:13px;color:var(--muted);margin-top:4px}
+.kp-info-dl{margin:0;display:flex;flex-direction:column;gap:4px}
+.kp-info-dl>div{display:flex;gap:8px}
+.kp-info-dl dt{flex:none;width:6.5em;color:var(--muted)}
+.kp-info-dl dd{margin:0;flex:1;min-width:0}
+.kp-info-notes{white-space:pre-wrap}
+.kp-info-karte{flex:1;min-height:0;display:flex}
+.kv.kv-embed{position:static;inset:auto;z-index:auto;flex:1;min-height:0;min-width:0;width:100%}
+.kv.kv-embed .kv-bar{padding:4px 8px}
+/* 広い画面：左に木の一覧、右に情報（スクロールしても見える） */
+@media (min-width: 900px){
+  .kp-split.with-info{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}
+  .kp-split.with-info .kp-info{position:sticky;top:8px;height:calc(100vh - var(--kp-tabs-h,48px) - 24px);height:calc(100dvh - var(--kp-tabs-h,48px) - 24px)}
+}
+/* 狭い画面：画面の下半分に重ねて出し、その分だけ一覧の下を空ける */
+@media (max-width: 899.98px){
+  .kp-split.with-info .kp-info{position:fixed;left:0;right:0;bottom:calc(var(--kp-tabs-h,48px) + env(safe-area-inset-bottom,0px));height:50vh;height:50dvh;z-index:5;border-radius:10px 10px 0 0;box-shadow:0 -2px 10px rgba(0,0,0,.2)}
+  .kp-split.with-info .kp-trees{padding-bottom:50vh;padding-bottom:50dvh}
+}

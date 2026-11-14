@@ -3,6 +3,7 @@
 //  ② 番号の写真を押して選ぶ → そこから次の番号の写真の手前までが1本分
 //  ③ 木ごとに、カルテに貼る写真を押して選ぶ（全景は最初の縦の写真を自動で入れる）。見出しは候補から選ぶか書く
 //  選んだ内容はこの端末の中に置く（src/store/kphotos.js）。カルテの出力のときに貼る（出力の画面）。
+//  間違えて入れた写真は「選んで外す」でまとめて外せる。③では、選んでいる木の入力内容（またはカルテ）を横（狭い画面では下半分）に出す
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { groupLabel, treesOfGroup } from '../core/groups.js';
 import { photoPlan } from '../core/photo.js';
@@ -12,16 +13,18 @@ import { simpleKey } from '../store/surveys.js';
 import { toHalf } from '../core/text.js';
 import { activeGroup } from './ListView.jsx';
 import { readPhotoFile } from './photoFile.js';
+import TreeInfo from './PhotoTreeInfo.jsx';
 
 const timeOf = (p) => String(p.shotAt || '').replace('T', ' ').slice(5, 16);
 
 // 写真1枚（一覧用の絵・時刻・印）
-function Thumb({ p, url, badge, on, onClick, children }) {
+function Thumb({ p, url, badge, on, sel = null, onClick, children }) {
   return (
-    <div className={`kp-item${on ? ' on' : ''}`} data-testid={`kp-${p.name}`}>
+    <div className={`kp-item${on ? ' on' : ''}${sel ? ' sel' : ''}`} data-testid={`kp-${p.name}`}>
       <button type="button" className="kp-img" onClick={onClick} title={`${p.name}　${String(p.shotAt || '').replace('T', ' ')}`}>
         {url ? <img src={url} alt={p.name} /> : <span className="hint">読み込み中</span>}
         {badge && <span className="kp-badge">{badge}</span>}
+        {sel != null && <span className={`kp-check${sel ? ' on' : ''}`} aria-hidden="true">{sel ? '✓' : ''}</span>}
       </button>
       <div className="kp-cap">
         <span>{timeOf(p)}</span>
@@ -39,6 +42,11 @@ export default function PhotoView({ state, config: cfg, toast }) {
   const [mode, setMode] = useState('number'); // 'number' 番号の写真を選ぶ / 'pick' カルテに貼る写真を選ぶ
   const [busy, setBusy] = useState('');
   const [over, setOver] = useState(false);
+  const [selMode, setSelMode] = useState(false); // 「選んで外す」の最中か
+  const [sel, setSel] = useState(() => new Set()); // 外すために選んだ写真の id
+  const lastSel = useRef(''); // Shift を押しながら押したとき、ここからの範囲を選ぶ
+  const [infoKey, setInfoKey] = useState(''); // 横に情報を出している木（③）
+  const [infoOpen, setInfoOpen] = useState(true);
   const urls = useRef([]);
   const pc = cfg?.karte?.photos;
 
@@ -46,6 +54,9 @@ export default function PhotoView({ state, config: cfg, toast }) {
   useEffect(() => {
     let alive = true;
     setLoaded('');
+    setSel(new Set());
+    setSelMode(false);
+    setInfoKey('');
     if (!group) return undefined;
     loadKPhotos(group).then((v) => {
       if (!alive) return;
@@ -135,10 +146,47 @@ export default function PhotoView({ state, config: cfg, toast }) {
   const toggleNumber = (id) => change((cur) => ({ ...cur, photos: cur.photos.map((p) => (p.id === id ? { ...p, number: !p.number, treeKey: '' } : p)) }));
   const setSegTree = (id, key) => change((cur) => ({ ...cur, photos: cur.photos.map((p) => (p.id === id ? { ...p, treeKey: key } : p)) }));
   const setPick = (treeKey, fn) => change((cur) => ({ ...cur, picks: { ...cur.picks, [treeKey]: fn(cur.picks[treeKey] || {}) } }));
+  // 写真を外す（一覧から外し、この端末に入れた中身も消す。元のファイルはそのまま）
+  const removeIds = (ids) => {
+    const set = new Set(ids);
+    change((cur) => ({ ...cur, photos: cur.photos.map((x) => (set.has(x.id) ? { ...x, removed: true, number: false } : x)) }));
+    for (const id of set) deleteKPhotoData(id).catch(() => {});
+  };
   const removePhoto = (p) => {
     if (!window.confirm(`写真「${p.name}」を外します。この端末に入れた写真の中身も消します（元のファイルは消えません）。`)) return;
-    change((cur) => ({ ...cur, photos: cur.photos.map((x) => (x.id === p.id ? { ...x, removed: true, number: false } : x)) }));
-    deleteKPhotoData(p.id).catch(() => {});
+    removeIds([p.id]);
+  };
+  // 選んで外す：押した写真を選ぶ（Shift を押しながら押すと、前に押した写真からの範囲を選ぶ）
+  const toggleSel = (id, range) => {
+    const ids = photos.map((p) => p.id);
+    const a = ids.indexOf(lastSel.current);
+    const b = ids.indexOf(id);
+    lastSel.current = id;
+    setSel((cur) => {
+      const next = new Set(cur);
+      if (range && a >= 0 && b >= 0) {
+        const on = !cur.has(id);
+        for (const x of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) {
+          if (on) next.add(x);
+          else next.delete(x);
+        }
+      } else if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const endSel = () => {
+    setSelMode(false);
+    setSel(new Set());
+    lastSel.current = '';
+  };
+  const removeSelected = () => {
+    const ids = photos.filter((p) => sel.has(p.id)).map((p) => p.id);
+    if (!ids.length) return;
+    if (!window.confirm(`選んだ写真${ids.length}枚を外します。この端末に入れた写真の中身も消します（元のファイルは消えません）。`)) return;
+    removeIds(ids);
+    toast(`${ids.length}枚を外しました`);
+    endSel();
   };
 
   // 見出しの候補：その木の「撮る写真」の名前（全景を除く）＋設定の候補
@@ -201,13 +249,36 @@ export default function PhotoView({ state, config: cfg, toast }) {
 
           {mode === 'number' && (
             <>
-              <p className="hint">
-                樹木番号が写っている写真を押してください。そこから次の番号の写真の手前までが、1本の木の写真になります。木は並び順に1本ずつ当てます（違うときは②で木を選び直せます）。
-              </p>
+              {selMode ? (
+                <div className="kp-selbar" data-testid="kp-selbar">
+                  <span>
+                    外す写真を押して選んでください（{sel.size}枚）。<span className="hint">Shift を押しながら押すと、前に押した写真からまとめて選べます。</span>
+                  </span>
+                  <button type="button" className="btn" onClick={() => setSel(new Set(photos.map((p) => p.id)))} data-testid="kp-sel-all">すべて選ぶ</button>
+                  <button type="button" className="btn" onClick={() => setSel(new Set())} disabled={!sel.size}>選び直す</button>
+                  <button type="button" className="btn danger" onClick={removeSelected} disabled={!sel.size} data-testid="kp-sel-remove">選んだ{sel.size}枚を外す</button>
+                  <button type="button" className="btn" onClick={endSel} data-testid="kp-sel-end">やめる</button>
+                </div>
+              ) : (
+                <div className="kp-selbar">
+                  <span className="hint">
+                    樹木番号が写っている写真を押してください。そこから次の番号の写真の手前までが、1本の木の写真になります。木は並び順に1本ずつ当てます（違うときは②で木を選び直せます）。
+                  </span>
+                  <button type="button" className="btn" onClick={() => setSelMode(true)} data-testid="kp-sel-start">選んで外す</button>
+                </div>
+              )}
               <div className="kp-grid">
                 {photos.map((p) => (
-                  <Thumb key={p.id} p={p} url={thumbs[p.id]} on={!!p.number} badge={p.number ? `No.${noOf(segByNumber.get(p.id)?.treeKey) || '？'}` : ''} onClick={() => toggleNumber(p.id)}>
-                    <button type="button" className="kp-x" onClick={() => removePhoto(p)} aria-label="この写真を外す">外す</button>
+                  <Thumb
+                    key={p.id}
+                    p={p}
+                    url={thumbs[p.id]}
+                    on={!selMode && !!p.number}
+                    sel={selMode ? sel.has(p.id) : null}
+                    badge={p.number ? `No.${noOf(segByNumber.get(p.id)?.treeKey) || '？'}` : ''}
+                    onClick={(e) => (selMode ? toggleSel(p.id, e.shiftKey) : toggleNumber(p.id))}
+                  >
+                    {!selMode && <button type="button" className="kp-x" onClick={() => removePhoto(p)} aria-label="この写真を外す">外す</button>}
                   </Thumb>
                 ))}
               </div>
@@ -215,7 +286,8 @@ export default function PhotoView({ state, config: cfg, toast }) {
           )}
 
           {mode === 'pick' && (
-            <>
+            <div className={`kp-split${infoOpen && treeOf(infoKey) ? ' with-info' : ''}`}>
+              <div className="kp-trees">
               <p className="hint">
                 木ごとに、カルテに貼る写真を押して選びます（もう一度押すと外れます）。全景には最初の縦の写真が入っています。変えるときは写真の「全景に」を押します。
                 {noTree > 0 && ` 番号の写真が木の数より${noTree}枚多くなっています。`}
@@ -228,7 +300,12 @@ export default function PhotoView({ state, config: cfg, toast }) {
                 const slotOf = (id) => cur.find((x) => x.photo?.id === id);
                 const caps = captionsOf(t?.tree);
                 return (
-                  <div key={s.number.id} className="kp-tree" data-testid={`kp-tree-${t?.treeNo || 'none'}`}>
+                  <div
+                    key={s.number.id}
+                    className={`kp-tree${s.treeKey && s.treeKey === infoKey ? ' cur' : ''}`}
+                    data-testid={`kp-tree-${t?.treeNo || 'none'}`}
+                    onClickCapture={() => s.treeKey && setInfoKey(s.treeKey)}
+                  >
                     <div className="kp-head">
                       {thumbs[s.number.id] && <img className="kp-num" src={thumbs[s.number.id]} alt="番号の写真" />}
                       <label>
@@ -245,6 +322,19 @@ export default function PhotoView({ state, config: cfg, toast }) {
                       <span className="hint">
                         {cur.filter((x) => x.photo).map((x) => x.slot.label).join('・') || '写真なし'}
                       </span>
+                      {s.treeKey && (
+                        <button
+                          type="button"
+                          className="btn kp-info-btn"
+                          onClick={() => {
+                            setInfoKey(s.treeKey);
+                            setInfoOpen(true);
+                          }}
+                          data-testid={`kp-info-${t?.treeNo}`}
+                        >
+                          この木の情報
+                        </button>
+                      )}
                     </div>
                     <div className="kp-grid">
                       {s.photos.map((p) => {
@@ -266,6 +356,7 @@ export default function PhotoView({ state, config: cfg, toast }) {
                           list={`kp-caps-${s.number.id}`}
                           value={x.caption}
                           onChange={(e) => setPick(s.treeKey, (k) => ({ ...k, [x.slot.key]: { ...k[x.slot.key], caption: e.target.value } }))}
+                          onFocus={() => setInfoKey(s.treeKey)}
                           data-testid={`kp-caption-${t?.treeNo}-${x.slot.key}`}
                         />
                       </label>
@@ -277,7 +368,11 @@ export default function PhotoView({ state, config: cfg, toast }) {
                 );
               })}
               <p className="hint">選び終わったら、「出力」の画面でカルテを出すと、写真が入ります。</p>
-            </>
+              </div>
+              {infoOpen && treeOf(infoKey) && (
+                <TreeInfo key={infoKey} state={state} cfg={cfg} tree={treeOf(infoKey).tree} onClose={() => setInfoOpen(false)} />
+              )}
+            </div>
           )}
         </div>
       )}
