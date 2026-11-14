@@ -1,6 +1,7 @@
 // 詳しい診断の記録を、確認用カルテの形で画面に出す（見るだけ。ダウンロードしなくても確かめられる）
 //  ダウンロードと同じ仕組み（exportKarte）でその1本のカルテを作り、画面の表にする（src/excel/sheetView.js）。
 //  入力中の記録でも、今の入力内容で作る。図形・画像は出ない
+//  embed：画面の中の枠に出す（写真の画面の横の欄。閉じるボタンは出さない）
 //  tree を渡すと簡易診断のカルテ（設定 karte。提出用の様式）で作る（rec・form は使わない）
 import { useEffect, useRef, useState } from 'react';
 import { exportKarte } from '../excel/karteExport.js';
@@ -9,7 +10,7 @@ import { karteRecords } from '../store/initial.js';
 import { simpleKarteRecord } from '../core/simpleKarte.js';
 import { loadKarteTemplateFile } from '../store/state.js';
 
-export default function KarteView({ state, cfg, rec, form, tree = null, onClose }) {
+export default function KarteView({ state, cfg, rec, form, tree = null, embed = false, onClose }) {
   const [views, setViews] = useState(null); // [{ name, form, width, cols, rows }]
   const [error, setError] = useState('');
   const [notes, setNotes] = useState([]); // 収まらなかった欄など
@@ -60,7 +61,7 @@ export default function KarteView({ state, cfg, rec, form, tree = null, onClose 
   const step = (d) => setZoom(Math.min(3, Math.max(0.3, Math.round((scale + d) * 10) / 10)));
 
   return (
-    <div className="kv" role="dialog" aria-label="カルテで見る" data-testid="karte-view">
+    <div className={embed ? 'kv kv-embed' : 'kv'} role={embed ? undefined : 'dialog'} aria-label="カルテで見る" data-testid="karte-view">
       <div className="kv-bar">
         <b>{tree ? 'カルテ（見るだけ）' : 'カルテ（確認用）'}</b>
         {views && views.length > 1 && (
@@ -83,9 +84,11 @@ export default function KarteView({ state, cfg, rec, form, tree = null, onClose 
             ＋
           </button>
         </span>
-        <button type="button" className="btn" onClick={onClose} data-testid="kv-close">
-          閉じる
-        </button>
+        {!embed && (
+          <button type="button" className="btn" onClick={onClose} data-testid="kv-close">
+            閉じる
+          </button>
+        )}
       </div>
       <div className="kv-body" ref={box}>
         {error && <div className="alert warn" data-testid="kv-error">{error}</div>}
@@ -124,7 +127,9 @@ export default function KarteView({ state, cfg, rec, form, tree = null, onClose 
             </table>
           </div>
         )}
-        <p className="hint">見るだけの画面です。直すときは閉じて入力画面で直し、もう一度開いてください。図形・画像は出ません。</p>
+        <p className="hint">
+          {embed ? '見るだけです。図形・画像は出ません。' : '見るだけの画面です。直すときは閉じて入力画面で直し、もう一度開いてください。図形・画像は出ません。'}
+        </p>
       </div>
     </div>
   );
