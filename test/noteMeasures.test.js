@@ -5,6 +5,8 @@ import { validateConfig } from '../src/core/config.js';
 import { autoDbNote, dbNoteOf } from '../src/core/notes.js';
 import { photoPlan } from '../src/core/photo.js';
 import { addMeasure, appendNoteLine, measureKinds, measureLine, measureParts, measurePlaces, measurePrefill, measureRecord, measuresToInitial, putMeasure, removeMeasure } from '../src/core/noteMeasures.js';
+import * as nm from '../src/core/noteMeasures.js';
+import { blankTree } from '../src/core/tree.js';
 import { addEntry, buildText, checkNumbers, entriesOf, partsOf, removeEntry, requiredFlags, setPart, unchosenEntries, unchosenFlags, withAuto } from '../src/core/detailParts.js';
 
 const cfg = structuredClone(cfgJson);
@@ -836,5 +838,71 @@ describe('芯未達を選んだら文にも出す（flag の offText）', () => 
     const c = withOff();
     c.noteMeasures.parts.height.offText = '未達';
     expect(validateConfig(c).errors.join()).toContain('offText');
+  });
+});
+
+// 出す文を手で直す（数字から作った文を人が書き換える。数字は残す）
+describe('寸法の文を手で直す', () => {
+  const { setMeasureText, manualTextOf, autoWording, wordingOf, noteLineOf, measuresWithLines, fullNotesOf } = nm;
+  // 文の形（sentence）の種類を足した設定（架空）
+  const sc = {
+    ...cfg,
+    noteMeasures: {
+      ...cfg.noteMeasures,
+      kinds: [...cfg.noteMeasures.kinds, { key: 'scar', label: '傷', places: ['幹', '枝'], parts: ['height'], sentence: '[{place}の][{height}に]傷が見られる。' }],
+    },
+  };
+  const base = () => {
+    let t = blankTree({ id: 't1', treeNo: '1', measuresV: 2, measures: [], notes: '・自由な記録' });
+    t = putMeasure(t, sc, { kind: 'decay', place: '根株', values: { height: { a: '0' }, size: [{ w: '10', h: '4' }] } }, -1);
+    return putMeasure(t, sc, { kind: 'scar', place: '枝', values: { height: { a: '2' } } }, -1);
+  };
+
+  it('直した文が野帳の1行・全文に出る。数字は変わらない', () => {
+    const t0 = base();
+    const auto = autoWording(sc, t0.measures[0]);
+    expect(auto).toBe('地上0m、10cm×4cm 根株'); // 数字から作る文（部位と寸法）
+    const t = setMeasureText(t0, sc, 0, '地際 10cm×4cm');
+    expect(manualTextOf(t.measures[0])).toBe('地際 10cm×4cm');
+    expect(t.measures[0].textAuto).toBe(auto);
+    expect(t.measures[0].values).toEqual(t0.measures[0].values);
+    expect(wordingOf(sc, t.measures[0])).toBe('地際 10cm×4cm');
+    expect(noteLineOf(sc, t.measures[0])).toBe('腐朽：地際 10cm×4cm'); // 部位は文の中に書いてあるので「種類：文」
+    expect(measuresWithLines(t, sc).map((m) => m.line)).toEqual(['腐朽：地際 10cm×4cm', '枝の地上2mに傷が見られる。']);
+    expect(fullNotesOf(t, sc)).toBe('・自由な記録\n・腐朽：地際 10cm×4cm\n・枝の地上2mに傷が見られる。');
+  });
+
+  it('文の形の種類は、直した文がそのまま1行になる', () => {
+    const t = setMeasureText(base(), sc, 1, '大枝を切った所 地上2mに傷が見られる。');
+    expect(noteLineOf(sc, t.measures[1])).toBe('大枝を切った所 地上2mに傷が見られる。');
+  });
+
+  it('空にする・数字から作る文と同じにすると、手で直した印が外れる', () => {
+    const t = setMeasureText(base(), sc, 0, '地際 10cm×4cm');
+    for (const v of ['', '  ', autoWording(sc, t.measures[0])]) {
+      const back = setMeasureText(t, sc, 0, v);
+      expect('text' in back.measures[0]).toBe(false);
+      expect('textAuto' in back.measures[0]).toBe(false);
+      expect(noteLineOf(sc, back.measures[0])).toBe('根株の腐朽：地上0m、10cm×4cm');
+    }
+  });
+
+  it('数字を直す：文を渡せば残り（そのときの数字から作る文を覚え直す）、渡さなければ数字から作る文に戻る', () => {
+    const t = setMeasureText(base(), sc, 0, '地際 10cm×4cm');
+    const values = { height: { a: '0' }, size: [{ w: '12', h: '4' }] };
+    const kept = putMeasure(t, sc, { kind: 'decay', place: '根株', values, text: '地際 10cm×4cm' }, 0);
+    expect(kept.measures[0].text).toBe('地際 10cm×4cm');
+    expect(kept.measures[0].textAuto).toBe('地上0m、12cm×4cm 根株');
+    const remade = putMeasure(t, sc, { kind: 'decay', place: '根株', values }, 0);
+    expect('text' in remade.measures[0]).toBe(false);
+    expect(noteLineOf(sc, remade.measures[0])).toBe('根株の腐朽：地上0m、12cm×4cm');
+  });
+
+  it('まとめる設定（merge）でも、手で直した文の寸法はまとめずにその文で出す', () => {
+    const mc = { ...sc, noteMeasures: { ...sc.noteMeasures, merge: true } };
+    let t = blankTree({ id: 't2', treeNo: '2', measuresV: 2, measures: [] });
+    for (const w of ['10', '20', '30']) t = putMeasure(t, mc, { kind: 'decay', place: '根株', values: { size: [{ w, h: '5' }] } }, -1);
+    t = setMeasureText(t, mc, 1, '地際 20cm×5cm');
+    expect([...new Set(measuresWithLines(t, mc).map((m) => m.line))]).toEqual(['腐朽：地際 20cm×5cm', '根株の腐朽：①10cm×5cm ②30cm×5cm']);
   });
 });

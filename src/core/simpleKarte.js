@@ -6,13 +6,13 @@
 //    @girth        … 幹周（株立は係数を掛けた記録値）
 //    @branchRatio  … 枝長/枝径（小数第2位まで。枯死・入力なしは空）
 //    @dateSerial   … 調査日を Excel の日付の数にしたもの（様式の日付の表示形式で見せる）
-//    @check:項目   … その点検項目の部位・寸法（checks の measure）の文と、「有」のとき入れた項目の値（この順）
+//    @check:項目   … その点検項目の部位・寸法（checks の measure）の文と、「有」のとき入れた項目の値（この順）。寸法の文を手で直してあればその文
 //    @notes        … 特記事項（文字の欄の文と、点検項目に付けていない寸法の1行。行の頭の「・」は付けない）
 //    @photoCaption1〜 … 写真の見出し（設定 karte.photos の枠の caption の番号。写真を選んだ木だけ）
 //  寸法の文の形は karte.measureLine（{text}・{place}・{kind}。既定「{text} {place}」。noteMeasures.hidePlaces の部位は書かない）
 //  1つの項目に2つ以上あるときのつなぎは karte.checkJoin（既定「／」）、特記事項の行のつなぎは karte.notesJoin（既定は全角の空白）
 import { branchRatioRaw, girthOf } from './calc.js';
-import { isMeasuresV2, measureKinds, measuresWithLines, measureText, measurePlaces, fullNotesOf, shownPlace } from './noteMeasures.js';
+import { isMeasuresV2, manualTextOf, measureKinds, measuresWithLines, measureText, measurePlaces, fullNotesOf, shownPlace } from './noteMeasures.js';
 import { blankTree, isFelled, isLocked } from './tree.js';
 
 export const SIMPLE_KARTE_CALC = ['@girth', '@branchRatio', '@dateSerial', '@notes'];
@@ -46,6 +46,8 @@ export function excelDate(ymd) {
 
 // 寸法1件の文（カルテの形）
 function karteMeasure(m, cfg) {
+  const manual = manualTextOf(m); // 手で直した文があれば、その文をそのまま書く
+  if (manual) return manual;
   const text = measureText(cfg, m.kind, m.values);
   if (!text) return '';
   const kind = measureKinds(cfg).find((k) => k.key === m.kind);
