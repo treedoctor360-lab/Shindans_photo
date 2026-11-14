@@ -1,7 +1,7 @@
 // 設定画面：調査情報、設定ファイル・野帳の原本・台帳の読み込み
 import { useState } from 'react';
-import { importEntrySheets } from '../core/entrySheet.js';
 import { readEntrySheets } from '../excel/entrySheetRead.js';
+import { importEntry } from '../store/actions.js';
 import { bookCount } from '../store/initial.js';
 import { idbPut } from '../store/idb.js';
 import { needsNewWorkspace, rememberTitle, putConfigInWorkspace } from '../store/workspace.js';
@@ -93,7 +93,7 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
       let r;
       // 読み終わってから、その時点の最新の状態に足す（読んでいる間に届いた変更を上書きしないように）
       await update((st) => {
-        r = importEntrySheets(st, config, sheets);
+        r = importEntry(st, config, sheets);
         return r.state;
       }, { now: true });
       setEntryResult({ stats: r.stats, errors: r.errors });

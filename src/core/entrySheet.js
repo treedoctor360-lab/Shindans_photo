@@ -88,8 +88,9 @@ function groupInfo(typed, cfg) {
 
 // 読み取った表（シートごと）から木を作る
 //  sheets：[{ name, info: { key: 値 }, date: "2099-04-05", inspector, rows: [{ row: 行の番号, cells: { 項目: 値 } }] }]
+//  place：木を並びに入れる関数 (trees, 木) => trees（省略時はまとまりの最後。番号の順に入れるのは src/store/actions.js の importEntry）
 //  返す形：{ state, stats: { added: [番号…], skipped: [すでにある番号…], check: [{ sheet, treeNo, why }], groups: [まとまりの鍵…] }, errors }
-export function importEntrySheets(state, cfg, sheets, now = Date.now()) {
+export function importEntrySheets(state, cfg, sheets, now = Date.now(), { place } = {}) {
   const es = cfg.entrySheet;
   const ag = cfg.addGroups;
   const errors = [];
@@ -166,10 +167,14 @@ export function importEntrySheets(state, cfg, sheets, now = Date.now()) {
         t = { ...t, date: sh.date || '', inspector: sh.inspector || '' };
         stats.check.push({ ...where, why });
       }
-      // まとまりの最後に足す（まとまりがまだなければ全体の最後）
-      const last = trees.filter((x) => groupKey(x, cfg) === key).at(-1);
-      const at = last ? trees.indexOf(last) + 1 : trees.length;
-      trees = [...trees.slice(0, at), t, ...trees.slice(at)];
+      if (place) {
+        trees = place(trees, t);
+      } else {
+        // まとまりの最後に足す（まとまりがまだなければ全体の最後）
+        const last = trees.filter((x) => groupKey(x, cfg) === key).at(-1);
+        const at = last ? trees.indexOf(last) + 1 : trees.length;
+        trees = [...trees.slice(0, at), t, ...trees.slice(at)];
+      }
       stats.added.push(`${sh.name} ${treeNo}`);
       if (!stats.groups.includes(key)) stats.groups.push(key);
     }
