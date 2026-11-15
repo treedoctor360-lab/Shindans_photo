@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import ExcelJS from 'exceljs';
 import cfgJson from './fixtures/sample-config.json';
 import { validateConfig } from '../src/core/config.js';
-import { importEntrySheets, readRemarks } from '../src/core/entrySheet.js';
+import { importEntrySheets, readRemarks, entryIssues, stuckReasons, isEntryStuck, rereadEntry } from '../src/core/entrySheet.js';
 import { readEntrySheets } from '../src/excel/entrySheetRead.js';
 import { initialState } from '../src/store/state.js';
 import { groupKey } from '../src/core/groups.js';
-import { importEntry, sortGroupByNumber, currentGroupTrees, addTree } from '../src/store/actions.js';
+import { importEntry, sortGroupByNumber, currentGroupTrees, addTree, saveTree } from '../src/store/actions.js';
 import { placeAdded } from '../src/store/order.js';
 
 const cfg = {
@@ -149,6 +149,79 @@ describe('入力表の読み込み', () => {
     // 一覧表の行に結び付いた木があるまとまりはしない
     const bound = { ...s, trees: s.trees.map((t, i) => (i === 0 ? { ...t, ledgerRow: 5 } : t)) };
     expect(sortGroupByNumber(bound, cfg).error).toMatch(/一覧表/);
+  });
+
+  // 入力表で止まった木：理由を木に残し、直すと消える。後から設定に読み方を足して読み直せる
+  const stuckBook = () =>
+    book([
+      [1, 'テストノキ', 9, 1.9, '－', '250/6', opt('vigor', 0), '－', '－', '－', cfgJson.initial.no, ''],
+      [2, '〃', 7, 1.6, '－', '3月4日', opt('vigor', 1), '？', '－', '－', cfgJson.initial.no, 'なぞ H1.0'],
+      [3, '〃', 7, 1.6, '－', '200/5', opt('vigor', 1), '－', '－', '－', cfgJson.initial.no, 'ふしぎ'],
+    ]);
+
+  it('止まった木は、読めなかった所を木に残す（一覧・出力で探せる）。値を入れた項目の知らせは消える', async () => {
+    const r = importEntrySheets(initialState(), cfg, await readEntrySheets(await stuckBook(), cfg), 1000);
+    const [t1, t2, t3] = r.state.trees;
+    expect(isEntryStuck(t1)).toBe(false); // そろった木は入力済み
+    expect(t1.fromEntry).toBe(true);
+    expect(isEntryStuck(t2)).toBe(true);
+    expect(t2.entryBad).toEqual({ branch: '3月4日', deadBranch: '？' });
+    expect(entryIssues(t2, cfg).map((x) => x.key)).toEqual(['remarks', 'branch', 'deadBranch']);
+    expect(stuckReasons(t2, cfg).join(' ')).toMatch(/なぞ H1\.0.*枝長\/枝径「3月4日」.*「？」は選択肢にありません.*未入力/);
+    // 手で値を入れたら、その項目の知らせは消える
+    const fixed = { ...t2, branchLen: '300', branchDia: '6', deadBranch: opt('deadBranch', 0) };
+    expect(entryIssues(fixed, cfg).map((x) => x.key)).toEqual(['remarks']);
+    expect(isEntryStuck(t3)).toBe(true);
+    // 印を付ける前に読み込んだ木（fromEntry なし）も、読めなかった備考が残っていれば止まっている木
+    expect(isEntryStuck({ ...t3, fromEntry: undefined })).toBe(true);
+    expect(isEntryStuck({ ...t1, fromEntry: undefined })).toBe(false);
+  });
+
+  it('入力済みにして保存すると、読めなかった所の知らせは消え、調査日・調査者は表の値のまま', async () => {
+    const r = importEntrySheets(initialState(), cfg, await readEntrySheets(await stuckBook(), cfg), 1000);
+    const t3 = r.state.trees[2];
+    const st = { ...r.state, currentId: t3.id, session: { date: '2099-12-31', inspector: '別の 人' } };
+    const out = saveTree(st, cfg, { force: true, after: 'stay' });
+    const saved = out.state.trees.find((t) => t.id === t3.id);
+    expect(saved.done).toBe(true);
+    expect(entryIssues(saved, cfg)).toEqual([]);
+    expect(isEntryStuck(saved)).toBe(false);
+    expect([saved.date, saved.inspector]).toEqual(['2099-04-05', '架空 太郎']);
+  });
+
+  it('「備考を読み直す」：足した読み方で、止まった木の読めなかった所だけを読む。そろえば入力済みに。ほかの木は変えない', async () => {
+    const r = importEntrySheets(initialState(), cfg, await readEntrySheets(await stuckBook(), cfg), 1000);
+    // 設定に読み方を足す：「なぞ H○」は腐朽、「？」は「無」
+    const cfg2 = {
+      ...cfg,
+      entrySheet: {
+        ...cfg.entrySheet,
+        values: { ...cfg.entrySheet.values, '？': opt('deadBranch', 0) },
+        remarks: [...cfg.entrySheet.remarks, { re: 'なぞ\\s*H([\\d.]+)', measure: { kind: 'decay', place: '幹', values: { height: { a: '$1', b: '' } } } }],
+      },
+    };
+    const before = r.state.trees;
+    const rr = rereadEntry(r.state, cfg2, 5000);
+    // 2番だけ読めた（3番の「ふしぎ」は今の設定でも読めない）
+    expect(rr.changes.map((c) => c.treeNo)).toEqual(['2']);
+    expect(rr.changes[0].read).toEqual([`枯れ枝：${opt('deadBranch', 0)}`, '幹の腐朽：地上1.0m']); // 確かめの画面に出す文
+    expect(rr.changes[0].done).toBe(false); // 枝長/枝径「3月4日」はまだ読めない
+    const t2 = rr.state.trees[1];
+    expect(t2.entryLeft).toBeUndefined();
+    expect(t2.entryBad).toEqual({ branch: '3月4日' });
+    expect(t2.deadBranch).toBe(opt('deadBranch', 0));
+    expect(t2.measures.at(-1)).toMatchObject({ kind: 'decay', values: { height: { a: '1.0' } } });
+    expect(t2.sent).toBe(false);
+    expect(rr.state.trees[0]).toBe(before[0]); // 入力済みの木はそのまま
+    expect(rr.state.trees[2]).toBe(before[2]); // 読めなかった木もそのまま
+    // 枝長/枝径を手で直してから読み直すと、そろって入力済みに（表の調査日のまま）
+    const st = { ...r.state, trees: r.state.trees.map((t, i) => (i === 1 ? { ...t, branchLen: '300', branchDia: '6' } : t)) };
+    const rr2 = rereadEntry(st, cfg2, 6000);
+    expect(rr2.changes[0].done).toBe(true);
+    expect(rr2.state.trees[1]).toMatchObject({ done: true, date: '2099-04-05', inspector: '架空 太郎' });
+    expect(entryIssues(rr2.state.trees[1], cfg2)).toEqual([]);
+    // もう一度押しても変わらない
+    expect(rereadEntry(rr2.state, cfg2, 7000).changes).toEqual([]);
   });
 
   it('路線名のないシートは読み込まず、知らせる', async () => {

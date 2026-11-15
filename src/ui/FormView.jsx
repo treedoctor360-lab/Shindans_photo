@@ -4,6 +4,7 @@ import { branchRatioRaw, branchRatioText, girthOf, heightRatioOf } from '../core
 import { groupLabel, treesOfGroup } from '../core/groups.js';
 import { dbNoteOf, freeNoteLines, isChipLine, noteLines, toggleChip } from '../core/notes.js';
 import { freeNotesOf, toMeasuresV2 } from '../core/noteMeasures.js';
+import { entryIssues } from '../core/entrySheet.js';
 import NoteMeasures from './NoteMeasures.jsx';
 import KarteView from './KarteView.jsx';
 import MoveBox from './MoveBox.jsx';
@@ -497,13 +498,21 @@ export default function FormView({ state, update, config: cfg, toast, send }) {
               <option key={s} value={s} />
             ))}
           </datalist>
-          {/* 入力表から読み込んだ木で、備考の読み取れなかった部分（src/core/entrySheet.js）。確かめて入力したら消す */}
-          {t.entryLeft && (
-            <div className="alert warn" data-testid="entry-left">
-              <span>入力表の備考で読み取れなかった部分：{t.entryLeft}</span>
-              <button type="button" className="btn" onClick={() => setField('entryLeft', '')} data-testid="entry-left-clear">
-                確かめた（この知らせを消す）
-              </button>
+          {/* 入力表から読み込んだ木で、読めなかった所（src/core/entrySheet.js の entryIssues）。
+              値を入れた項目は消え、備考は「確かめた」か入力済みにして保存すると消える */}
+          {entryIssues(t, cfg).length > 0 && (
+            <div className="alert warn" data-testid="entry-issues">
+              <span>入力表で読めなかった所があります。確かめて入力してください：</span>
+              {entryIssues(t, cfg).map((x) => (
+                <span key={x.key} data-testid={x.key === 'remarks' ? 'entry-left' : `entry-bad-${x.key}`}>
+                  ・{x.text}
+                </span>
+              ))}
+              {t.entryLeft && (
+                <button type="button" className="btn" onClick={() => setField('entryLeft', '')} data-testid="entry-left-clear">
+                  備考を確かめた（この知らせを消す）
+                </button>
+              )}
             </div>
           )}
           {/* 伐採済み（設定 felled）：押すと点検項目・要否・樹勢を空欄にし、入力を止める（未入力にも数えない）。もう一度押すと戻す */}

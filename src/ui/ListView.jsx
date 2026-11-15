@@ -3,6 +3,7 @@ import AddGroupBox from './AddGroupBox.jsx';
 import RenumberBox from './RenumberBox.jsx';
 import { groupKey, groupKeys, groupLabel, treesOfGroup } from '../core/groups.js';
 import { alertsOf } from '../core/rules.js';
+import { isEntryStuck } from '../core/entrySheet.js';
 import { monthDay, toHalf } from '../core/text.js';
 import { useState } from 'react';
 import { addTree } from '../store/actions.js';
@@ -74,7 +75,8 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
   const all = inGroup.filter((t) => !t.deleted);
   const areas = [...new Set(all.map((t) => t.area || NO_AREA))];
   const area = areas.includes(state.area) ? state.area : '';
-  const filter = state.listFilter === 'deleted' && !deleted.length ? 'all' : state.listFilter || 'all';
+  const stuck = all.filter(isEntryStuck); // 入力表から読み込んで、入力中のまま止まっている木
+  const filter = (state.listFilter === 'deleted' && !deleted.length) || (state.listFilter === 'entry' && !stuck.length) ? 'all' : state.listFilter || 'all';
   const inArea = (t) => !area || (t.area || NO_AREA) === area;
   const rsOf = (t) => (t.conflict ? 'conflict' : reviewState(t, state, cfg));
   // 確認の段階での絞り込みは、木と、その木の詳しい診断の記録のどちらかが当てはまれば出す
@@ -97,6 +99,7 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
         filter === 'deleted' ||
         filter === 'all' ||
         (filter === 'todo' && !t.done) ||
+        (filter === 'entry' && isEntryStuck(t)) ||
         (filter === 'wait' && treeState(t, cfg) === 'wait') ||
         rsHas(t, filter),
     );
@@ -232,6 +235,7 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
             ['all', 'すべて'],
             ['todo', '未入力'],
             ['wait', waitLabel],
+            ...(stuck.length ? [['entry', `入力表で止まった木（${stuck.length}）`]] : []),
             ...(deleted.length ? [['deleted', `削除した木（${deleted.length}）`]] : []),
           ].map(([k, l]) => (
             <button key={k} type="button" className={`chip${filter === k ? ' on' : ''}`} onClick={() => set({ listFilter: k })} data-filter={k}>
@@ -311,6 +315,11 @@ export default function ListView({ state, update, config: cfg, send, toast }) {
                 {t.source !== 'ledger' && t.done && (t.date || t.inspector) && (
                   <span className="tag" data-testid="card-stamp">
                     {monthDay(t.date)} {surnames(t.inspector)}
+                  </span>
+                )}
+                {isEntryStuck(t) && (
+                  <span className="tag w" data-testid="card-entry-stuck">
+                    入力表で止まった木
                   </span>
                 )}
                 {t.appBackup && <span className="tag w">アプリ入力の控えあり</span>}

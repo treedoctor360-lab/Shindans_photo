@@ -2,6 +2,9 @@
 import { useState } from 'react';
 import { readEntrySheets } from '../excel/entrySheetRead.js';
 import { importEntry } from '../store/actions.js';
+import { entryIssues, rereadEntry } from '../core/entrySheet.js';
+import { groupLabel } from '../core/groups.js';
+import { toHalf } from '../core/text.js';
 import { bookCount } from '../store/initial.js';
 import { idbPut } from '../store/idb.js';
 import { needsNewWorkspace, rememberTitle, putConfigInWorkspace } from '../store/workspace.js';
@@ -86,6 +89,7 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
 
   // 入力表（Excel。1本1行。紙の野帳を写した表）を読み込んで、木にする（設定 entrySheet）
   const [entryResult, setEntryResult] = useState(null); // { stats, errors }
+  const [rereadPlan, setRereadPlan] = useState(null); // 「備考を読み直す」で変わる木の一覧（確かめ中）
   const onEntrySheet = async (file) => {
     setBusy(true);
     try {
@@ -256,8 +260,54 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
           <h2>入力表（紙の野帳を写した Excel）</h2>
           <FileButton label={busy ? '読み込み中…' : '入力表（Excel）を読み込む'} accept=".xlsx" onFile={onEntrySheet} disabled={busy} testId="entry-sheet-file" />
           <p className="hint">
-            1本1行の入力表から木を作ります。すでにある番号の木は読み込みません（上書きしません）。備考の略記は寸法や特記事項に直します。読み取れなかった所がある木は「入力中」のままにするので、開いて確かめてから保存してください。
+            1本1行の入力表から木を作ります。すでにある番号の木は読み込みません（上書きしません）。備考の略記は寸法や特記事項に直します。読み取れなかった所がある木は「入力中」のままにするので、開いて確かめてから保存してください（一覧の「入力表で止まった木」で探せます）。
           </p>
+          {/* 読み直し：設定に読み方を足した後、止まっている木の読めなかった所だけを今の設定で読み直す（src/core/entrySheet.js の rereadEntry） */}
+          {(() => {
+            const n = state.trees.filter((t) => !t.deleted && entryIssues(t, config).length).length;
+            if (!n && !rereadPlan) return null;
+            const open = () => {
+              const r = rereadEntry(state, config);
+              if (!r.changes.length) return toast('今の設定で新しく読める所はありませんでした');
+              setRereadPlan(r.changes);
+            };
+            const apply = async () => {
+              let r;
+              await update((cur) => {
+                r = rereadEntry(cur, config, Date.now()); // その時点の最新の状態で読み直す
+                return r.state;
+              }, { now: true });
+              setRereadPlan(null);
+              const nDone = r.changes.filter((c) => c.done).length;
+              toast(r.changes.length ? `${r.changes.length}本を読み直しました` + (nDone ? `（うち${nDone}本を入力済みにしました）` : '') : '今の設定で新しく読める所はありませんでした');
+            };
+            return rereadPlan ? (
+              <div className="alert info" data-testid="reread-plan">
+                <span>今の設定の読み方で、次の木の読めなかった所を読み直します（{rereadPlan.length}本）。すでに読めた項目・手で直した値は変えません。</span>
+                <ul className="hint" data-testid="reread-list">
+                  {rereadPlan.slice(0, 40).map((c) => (
+                    <li key={c.id}>
+                      {groupLabel(state.trees, c.group, config)} {toHalf(c.treeNo)}：{c.read.join('・')}
+                      {c.done ? ' → 入力済みにします' : c.left ? ` → まだ読めない所：${c.left}` : ' → 入力中のまま（ほかに足りない項目があります）'}
+                    </li>
+                  ))}
+                  {rereadPlan.length > 40 && <li>ほか{rereadPlan.length - 40}本</li>}
+                </ul>
+                <div className="acts">
+                  <button type="button" className="btn" onClick={() => setRereadPlan(null)}>
+                    やめる
+                  </button>
+                  <button type="button" className="btn fill" onClick={apply} data-testid="reread-apply">
+                    読み直す
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="btn" onClick={open} disabled={busy} data-testid="reread-open">
+                読めなかった所を、今の設定で読み直す（{n}本）
+              </button>
+            );
+          })()}
           {entryResult && (
             <div className="alert warn" data-testid="entry-sheet-result">
               <span>

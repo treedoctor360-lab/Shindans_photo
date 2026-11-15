@@ -105,8 +105,12 @@ export function saveTree(state, cfg, { force = false, now = new Date().toISOStri
     source: 'app',
     updatedAt: now, // サーバーで新しい・古いを比べるため
     // 調査日・調査者は初めて入力済みにしたときだけ入れる（入力済みの木を後日直しても元のまま。直すときは「まとめて直す」）
-    date: x.done && x.date ? x.date : state.session.date,
-    inspector: x.done && x.inspector ? x.inspector : state.session.inspector,
+    //  入力表から読み込んだ木（fromEntry）は、入力中のまま直して保存しても表の調査日・調査者のまま
+    date: (x.done || x.fromEntry) && x.date ? x.date : state.session.date,
+    inspector: (x.done || x.fromEntry) && x.inspector ? x.inspector : state.session.inspector,
+    // 入力表で読めなかった所の知らせは、確かめて保存したら消す（src/core/entrySheet.js の entryIssues）
+    entryLeft: '',
+    entryBad: undefined,
   }));
   if (after === 'stay') return { state: next, missing, saved: true }; // 保存だけ（同じ木のまま続けて直せる）
   if (after === 'list') return { state: { ...next, view: 'list' }, missing, saved: true };
