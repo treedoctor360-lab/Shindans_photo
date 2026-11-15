@@ -18,7 +18,7 @@ import { toHalf } from './text.js';
 import { blankTree } from './tree.js';
 import { groupKey } from './groups.js';
 import { missingFields } from './rules.js';
-import { putMeasure, appendNoteLine } from './noteMeasures.js';
+import { putMeasure, appendNoteLine, measureLine } from './noteMeasures.js';
 
 const str = (v) => String(v ?? '').trim();
 const half = (v) => toHalf(str(v));
@@ -45,6 +45,22 @@ function dropEmpty(values) {
     } else if (v != null) out[k] = v;
   }
   return out;
+}
+
+// 項目の呼び名（知らせに出す）
+function fieldLabel(field, cfg) {
+  if (field === 'vigor') return cfg.vigorLabel || '樹勢';
+  if (field === 'initialNeeded') return cfg.initial?.label || '健全度調査';
+  if (field === 'branch') return '枝長/枝径';
+  return cfg.checks.find((x) => x.key === field)?.label || field;
+}
+
+// 入力表の値を項目の値にする（読み替え values を当て、選択肢にあるか確かめる）。返す形：{ value, ok }
+function readChoice(raw, field, cfg) {
+  const es = cfg.entrySheet;
+  const v0 = half(raw);
+  const v = v0 in (es.values || {}) ? es.values[v0] : v0;
+  return { value: v, ok: !v || (cfg.options[field] || []).includes(v) };
 }
 
 // 備考を読む。返す形：{ measures: [{ kind, place, values }], notes: [文…], set: { 項目: 値 }, felled, left: 読み取れなかった文字 }
@@ -97,7 +113,6 @@ export function importEntrySheets(state, cfg, sheets, now = Date.now(), { place 
   const stats = { added: [], skipped: [], check: [], groups: [] };
   if (!es || !ag) return { state, stats, errors: ['この設定では入力表を読み込めません'] };
   const sheetSpec = cfg.dbFormat.sheets.find((x) => x.type === ag.siteType);
-  const map = (v) => (v in (es.values || {}) ? es.values[v] : v);
   const blank = new Set((es.blank || []).map(half));
   const same = new Set((es.same || []).map(half));
   const checkKeys = new Set([...cfg.checks.map((c) => c.key), 'vigor', 'initialNeeded']);
@@ -123,6 +138,7 @@ export function importEntrySheets(state, cfg, sheets, now = Date.now(), { place 
         continue;
       }
       const why = [];
+      const bad = {}; // 読めなかった値 { 項目: 表の文字 }（後で設定を直して読み直せるように、木に残す）
       seq += 1;
       const stamp = now + seq;
       let t = blankTree({ id: `new:${stamp}`, uid: `${state.server?.deviceId || 'dev'}-${stamp.toString(36)}`, status: cfg.newTreeStatus ?? '', ...info, treeNo });
@@ -139,13 +155,18 @@ export function importEntrySheets(state, cfg, sheets, now = Date.now(), { place 
         } else if (field === 'branch') {
           const m = v.match(/^([\d.]+)\s*[/／]\s*([\d.]+)$/);
           if (m) [t.branchLen, t.branchDia] = [m[1], m[2]];
-          else if (v && !blank.has(v)) why.push(`枝長/枝径「${v}」を読めません`);
+          else if (v && !blank.has(v)) {
+            why.push(`枝長/枝径「${v}」を読めません`);
+            bad.branch = v;
+          }
         } else if (checkKeys.has(field)) {
-          v = map(v);
-          const opts = cfg.options[field] || [];
-          if (!v) continue;
-          if (opts.includes(v)) t[field] = v;
-          else why.push(`${cfg.checks.find((x) => x.key === field)?.label || field}「${half(raw)}」は選択肢にありません`);
+          const r = readChoice(raw, field, cfg);
+          if (!r.value) continue;
+          if (r.ok) t[field] = r.value;
+          else {
+            why.push(`${fieldLabel(field, cfg)}「${half(raw)}」は選択肢にありません`);
+            bad[field] = half(raw);
+          }
         } else {
           t[field] = blank.has(v) ? '' : v;
         }
@@ -158,6 +179,8 @@ export function importEntrySheets(state, cfg, sheets, now = Date.now(), { place 
       if (rm.felled && cfg.felled) t.felled = true;
       if (rm.left) why.push(`備考の読み取れなかった部分：${rm.left}`);
       if (rm.left) t.entryLeft = rm.left;
+      if (Object.keys(bad).length) t.entryBad = bad;
+      t.fromEntry = true; // 入力表から読み込んだ木（入力中のまま止まった木を一覧・出力で知らせる。保存しても調査日は表の値のまま）
       // 入力済みにできるか（未入力の項目・読み取れなかった所があれば、入力中のままにして人が確かめる）
       const missing = missingFields(t, cfg);
       if (missing.length) why.push(`未入力：${missing.join('・')}`);
@@ -216,4 +239,102 @@ export function validateEntrySheet(es, cfg, need) {
       need(r.note == null || typeof r.note === 'string', `${at}.note は文字にしてください`);
       need(r.set == null || isObj(r.set), `${at}.set は { 項目: 値 } の形にしてください`);
     });
+}
+
+// ---------- 入力表で止まった木 ----------
+
+// まだ直していない、入力表で読めなかった所。返す形：[{ key, text }]（直せば消える）
+//  備考の読み取れなかった部分（entryLeft）：「確かめた」を押すか、入力済みにして保存すると消える
+//  読めなかった値（entryBad）：その項目に値を入れると消える
+export function entryIssues(t, cfg) {
+  const out = [];
+  if (t.entryLeft) out.push({ key: 'remarks', text: `備考の読み取れなかった部分：${t.entryLeft}` });
+  for (const [field, raw] of Object.entries(t.entryBad || {})) {
+    if (field === 'branch') {
+      if (!(t.branchLen && t.branchDia)) out.push({ key: field, text: `枝長/枝径「${raw}」を読めません` });
+    } else if (!t[field]) out.push({ key: field, text: `${fieldLabel(field, cfg)}「${raw}」は選択肢にありません` });
+  }
+  return out;
+}
+
+// 入力表から読み込んで、入力中のまま止まっている木か
+export const isEntryStuck = (t) => !!t.fromEntry && !t.done && !t.deleted;
+
+// 止まっている木の理由（入力表で読めなかった所＋未入力の項目）
+export function stuckReasons(t, cfg) {
+  const out = entryIssues(t, cfg).map((x) => x.text);
+  const missing = missingFields(t, cfg);
+  if (missing.length) out.push(`未入力：${missing.join('・')}`);
+  return out;
+}
+
+// 「備考を読み直す」：今の設定の読み方で、止まっている木の読めなかった所だけを読み直す
+//  直す相手は、まだ残っている「読み取れなかった備考」（entryLeft）と「読めなかった値」（entryBad）だけ。すでに読めた項目・手で直した所は変えない
+//  読めた所は寸法・特記事項の文・項目の値にし、残りは entryLeft に残す。ほかに足りない所がなくなった入力中の木は入力済みにする（調査日・調査者は表の値）
+//  返す形：{ state, changes: [{ id, treeNo, group, read: [読めた内容…], left: まだ残る備考, done: 入力済みにしたか }] }
+export function rereadEntry(state, cfg, now = Date.now()) {
+  const es = cfg.entrySheet;
+  const changes = [];
+  if (!es) return { state, changes };
+  const stamp = new Date(now).toISOString();
+  const trees = state.trees.map((t0) => {
+    if (t0.deleted || !(t0.entryLeft || t0.entryBad)) return t0;
+    let t = { ...t0 };
+    const read = [];
+    // 読めなかった値（今の読み替え・選択肢で読めれば入れる。すでに値を入れた項目は外すだけ）
+    const bad = { ...(t.entryBad || {}) };
+    for (const [field, raw] of Object.entries(bad)) {
+      if (field === 'branch') {
+        if (t.branchLen && t.branchDia) delete bad[field];
+        continue; // 枝長/枝径の形は設定で変わらない
+      }
+      if (t[field]) {
+        delete bad[field];
+        continue;
+      }
+      const r = readChoice(raw, field, cfg);
+      if (r.value && r.ok) {
+        t[field] = r.value;
+        delete bad[field];
+        read.push(`${fieldLabel(field, cfg)}：${r.value}`);
+      }
+    }
+    // 備考の読み取れなかった部分
+    if (t.entryLeft) {
+      const rm = readRemarks(t.entryLeft, es);
+      const got = rm.measures.length || rm.notes.length || Object.keys(rm.set).length || (rm.felled && cfg.felled);
+      if (got) {
+        for (const m of rm.measures) {
+          t = putMeasure(t, cfg, m);
+          read.push(measureLine(cfg, m.kind, m.place, m.values));
+        }
+        for (const n of rm.notes) {
+          t.notes = appendNoteLine(t.notes || '', n);
+          read.push(n);
+        }
+        for (const [k, v] of Object.entries(rm.set)) read.push(`${fieldLabel(k, cfg)}：${v}`);
+        Object.assign(t, rm.set);
+        if (rm.felled && cfg.felled) {
+          t.felled = true;
+          read.push(cfg.felled.label || '伐採済み');
+        }
+        t.entryLeft = rm.left;
+      }
+    }
+    if (!read.length) return t0; // 新しく読めた所がない木は変えない
+    if (Object.keys(bad).length) t.entryBad = bad;
+    else delete t.entryBad;
+    if (!t.entryLeft) delete t.entryLeft;
+    // ほかに足りない所がなくなった入力中の木は入力済みに（入力表の調査日・調査者のまま）
+    let done = false;
+    if (!t.done && !entryIssues(t, cfg).length && !missingFields(t, cfg).length) {
+      t = { ...t, done: true, source: 'app', date: t.date || state.session?.date || '', inspector: t.inspector || state.session?.inspector || '' };
+      done = true;
+    }
+    t = { ...t, sent: false, updatedAt: stamp };
+    changes.push({ id: t.id, treeNo: t.treeNo, group: groupKey(t, cfg), read, left: t.entryLeft || '', done });
+    return t;
+  });
+  if (!changes.length) return { state, changes };
+  return { state: { ...state, trees }, changes };
 }

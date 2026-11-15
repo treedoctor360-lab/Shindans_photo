@@ -16,9 +16,16 @@ test('入力表を読み込み、写真を木ごとに区切って選び、写�
   await page.setInputFiles('[data-testid=entry-sheet-file]', 'test-results/office-entry.xlsx');
   await expect(page.locator('.toast')).toContainText('3本を読み込みました（うち1本は確かめてください）');
   await expect(page.locator('[data-testid=entry-sheet-result]')).toContainText('路線1 3：備考の読み取れなかった部分：なぞの書き込み');
+  // 読み直し：今の設定では新しく読める所がない（読み方を足した設定で読み直すと読める。test/entrySheet.test.js）
+  await expect(page.locator('[data-testid=reread-open]')).toContainText('（1本）');
+  await page.click('[data-testid=reread-open]');
+  await expect(page.locator('.toast')).toContainText('今の設定で新しく読める所はありませんでした');
 
-  // 3番を開くと、読み取れなかった備考が出る。確かめて保存する
+  // 一覧の「入力表で止まった木」で3番だけが出る。開くと、読み取れなかった備考が出る。確かめて知らせを消す
   await page.click('.tab:has-text("一覧")');
+  await page.click('[data-filter=entry]');
+  await expect(page.locator('[data-testid=tree-cards] .card')).toHaveCount(1);
+  await expect(page.locator('[data-testid=tree-cards] .card[data-tree="3"] [data-testid=card-entry-stuck]')).toBeVisible();
   await page.locator('[data-testid=tree-cards] .card[data-tree="3"]').click();
   await expect(page.locator('[data-testid=entry-left]')).toContainText('なぞの書き込み');
   await page.click('[data-testid=entry-left-clear]');
@@ -45,8 +52,12 @@ test('入力表を読み込み、写真を木ごとに区切って選び、写�
   await expect(page.locator('[data-testid=kp-tree-1] [data-testid="kp-office-a2.png"] .kp-badge')).toHaveText('写真1');
 
   // 出力：確定していなくても出せる。写真は1番に2枚（2番は横の写真だけなので、全景は入らない）
+  //  3番は入力中なので、出力の前に番号を見せて聞く →「入力済みだけ出力」
   await page.click('.tab:has-text("出力")');
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=export-simple-karte]')]);
+  await page.click('[data-testid=export-simple-karte]');
+  await expect(page.locator('[data-testid=karte-todo]')).toContainText('3は入力中です（1本）。入力中の木も出力しますか？');
+  await expect(page.locator('[data-testid=karte-todo-list]')).toContainText('3：');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=karte-done-only]')]);
   await expect(page.locator('.toast')).toContainText('写真2枚を1本に貼りました');
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(await dl.path());
@@ -56,4 +67,11 @@ test('入力表を読み込み、写真を木ごとに区切って選び、写�
   expect(wb.getWorksheet('1').getCell('A12').value).toBe('架空の見出し');
   expect(wb.getWorksheet('1').getCell('C9').value).toBe('根が幹を締め付けている。');
   expect(wb.getWorksheet('1').getCell('C2').value).toEqual(new Date(Date.UTC(2099, 4, 6)));
+
+  // 「入力中の木も含めて出力」なら3番も入る
+  await page.click('[data-testid=export-simple-karte]');
+  const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=karte-with-todo]')]);
+  const wb2 = new ExcelJS.Workbook();
+  await wb2.xlsx.readFile(await dl2.path());
+  expect(wb2.worksheets.map((w) => w.name)).toEqual(['1', '2', '3', '選択肢']);
 });

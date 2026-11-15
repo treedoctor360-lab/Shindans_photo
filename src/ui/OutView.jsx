@@ -13,6 +13,7 @@ import { addKartePhotos } from '../excel/kartePhotos.js';
 import { segmentsOf, slotPhotos } from '../core/kartePhotoPlan.js';
 import { getKPhotoData, loadKPhotos } from '../store/kphotos.js';
 import { photoCaptionKey, simpleKarteRecord } from '../core/simpleKarte.js';
+import { stuckReasons } from '../core/entrySheet.js';
 import { gradeWriteBack, initialsForBook, karteRecords } from '../store/initial.js';
 import { loadInitialBookFile, loadKarteTemplateFile, loadLedgerFile, loadTemplate } from '../store/state.js';
 import { unsentCount, unsentList } from '../store/sync.js';
@@ -52,6 +53,7 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
   const [karteAll, setKarteAll] = useState(false); // 確認用カルテを、すべての公園・路線をまとめて出すか（既定は選んでいる公園・路線だけ）
   const [karteLong, setKarteLong] = useState([]); // 確認用カルテで、文字を小さくしても枠に収まらなかった欄
   const [simpleLong, setSimpleLong] = useState([]); // 簡易診断のカルテで、文字を小さくしても枠に収まらなかった欄
+  const [askKarte, setAskKarte] = useState(false); // 簡易診断のカルテ：入力中の木があるので、出すかを聞いている
   const [withUnconfirmed, setWithUnconfirmed] = useState(false); // 未確定の木も一覧表に書き込むか（途中経過の確認用）
   const [handKeys, setHandKeys] = useState(null); // 内勤さんに渡す Excel に出す公園・路線（null：今見ている公園・路線だけ）
   if (!cfg || !state.trees.length) {
@@ -96,8 +98,14 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
   const karteAnyTree = !useReview || withUnconfirmed || !!cfg.karte?.unconfirmedOk;
   const karteDraftMark = cfg.karte?.unconfirmedOk ? '' : draftMark;
   const simpleKarteTrees = shown.filter((t) => karteAnyTree || dbIds.has(t.id));
-  const onSimpleKarte = () =>
+  //  入力中の木（入力表で止まった木も）：カルテには出さず、出力の前に番号と理由を見せて「入力中の木も出すか」を聞く
+  //  確定した木だけを出す業務（karteAnyTree でない）では入力中の木は出せないので、知らせるだけ
+  const karteTodo = groupTrees.filter((t) => !t.done);
+  const pressSimpleKarte = () => (karteTodo.length ? setAskKarte(true) : onSimpleKarte(simpleKarteTrees));
+  const onSimpleKarte = (karteTrees) =>
     run('簡易診断カルテ', async () => {
+      setAskKarte(false);
+      const simpleKarteTrees = karteTrees; // 出す木（入力済み、選べば入力中の木も。並びは一覧の順）
       const file = await loadKarteTemplateFile();
       if (!file) throw new Error('カルテの様式がありません。「設定」で読み込んでください');
       const recs = simpleKarteTrees.map((t) => simpleKarteRecord(t, cfg));
@@ -470,12 +478,52 @@ export default function OutView({ state, update, config: cfg, toast, send, sendS
           <button
             type="button"
             className="btn fill big"
-            disabled={!!busy || !simpleKarteTrees.length || !state.karteTemplateInfo || (state.karteTemplateInfo.errorsOf?.karte ?? state.karteTemplateInfo.errors)?.length > 0}
-            onClick={onSimpleKarte}
+            disabled={
+              !!busy ||
+              !(simpleKarteTrees.length || (karteAnyTree && karteTodo.length)) ||
+              !state.karteTemplateInfo ||
+              (state.karteTemplateInfo.errorsOf?.karte ?? state.karteTemplateInfo.errors)?.length > 0
+            }
+            onClick={pressSimpleKarte}
             data-testid="export-simple-karte"
           >
-            {busy === '簡易診断カルテ' ? '作成中…' : `${cfg.karte.fileLabel || 'カルテ'}を出力：${gname}（${simpleKarteTrees.length}本）`}
+            {busy === '簡易診断カルテ' ? '作成中…' : `${cfg.karte.fileLabel || 'カルテ'}を出力：${gname}（${simpleKarteTrees.length}本${karteTodo.length ? `・入力中${karteTodo.length}本` : ''}）`}
           </button>
+          {askKarte && karteTodo.length > 0 && (
+            <div className="alert warn" data-testid="karte-todo">
+              <span>
+                {numberRanges(karteTodo.map((t) => t.treeNo)) || '番号のない木'}は入力中です（{karteTodo.length}本）。
+                {karteAnyTree ? '入力中の木も出力しますか？' : '入力中の木はカルテに出せません。入力済みの木だけを出力しますか？'}
+              </span>
+              <ul className="hint" data-testid="karte-todo-list">
+                {karteTodo.slice(0, 30).map((t) => (
+                  <li key={t.id}>
+                    {toHalf(t.treeNo) || '(番号なし)'}：{stuckReasons(t, cfg).join('／') || '入力中'}
+                  </li>
+                ))}
+                {karteTodo.length > 30 && <li>ほか{karteTodo.length - 30}本</li>}
+              </ul>
+              {karteAnyTree && <span className="hint">入力中の木を出すと、読めなかった所・未入力の項目は空のままカルテに書かれます。</span>}
+              <div className="acts">
+                {karteAnyTree && (
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => onSimpleKarte(groupTrees.filter((t) => !t.done || simpleKarteTrees.includes(t)))}
+                    data-testid="karte-with-todo"
+                  >
+                    入力中の木も含めて出力（{simpleKarteTrees.length + karteTodo.length}本）
+                  </button>
+                )}
+                <button type="button" className="btn fill" disabled={!simpleKarteTrees.length} onClick={() => onSimpleKarte(simpleKarteTrees)} data-testid="karte-done-only">
+                  入力済みだけ出力（{simpleKarteTrees.length}本）
+                </button>
+                <button type="button" className="btn" onClick={() => setAskKarte(false)}>
+                  やめる
+                </button>
+              </div>
+            </div>
+          )}
           {simpleLong.length > 0 && (
             <div className="alert warn" data-testid="simple-karte-long">
               <span>
