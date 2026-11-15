@@ -172,6 +172,9 @@ describe('入力表の読み込み', () => {
     const fixed = { ...t2, branchLen: '300', branchDia: '6', deadBranch: opt('deadBranch', 0) };
     expect(entryIssues(fixed, cfg).map((x) => x.key)).toEqual(['remarks']);
     expect(isEntryStuck(t3)).toBe(true);
+    // 印を付ける前に読み込んだ木（fromEntry なし）も、読めなかった備考が残っていれば止まっている木
+    expect(isEntryStuck({ ...t3, fromEntry: undefined })).toBe(true);
+    expect(isEntryStuck({ ...t1, fromEntry: undefined })).toBe(false);
   });
 
   it('入力済みにして保存すると、読めなかった所の知らせは消え、調査日・調査者は表の値のまま', async () => {

@@ -258,7 +258,8 @@ export function entryIssues(t, cfg) {
 }
 
 // 入力表から読み込んで、入力中のまま止まっている木か
-export const isEntryStuck = (t) => !!t.fromEntry && !t.done && !t.deleted;
+//  印 fromEntry を付ける前に読み込んだ木も、読めなかった備考（entryLeft）が残っていれば止まっている木とみなす
+export const isEntryStuck = (t) => !!(t.fromEntry || t.entryLeft) && !t.done && !t.deleted;
 
 // 止まっている木の理由（入力表で読めなかった所＋未入力の項目）
 export function stuckReasons(t, cfg) {
