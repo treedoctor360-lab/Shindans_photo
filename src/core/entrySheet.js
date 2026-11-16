@@ -52,7 +52,7 @@ function fieldLabel(field, cfg) {
   if (field === 'vigor') return cfg.vigorLabel || '樹勢';
   if (field === 'initialNeeded') return cfg.initial?.label || '健全度調査';
   if (field === 'branch') return '枝長/枝径';
-  return cfg.checks.find((x) => x.key === field)?.label || field;
+  return cfg.checks.find((x) => x.key === field)?.label || cfg.details?.find((d) => d.field === field)?.label || cfg.extraFields?.find((x) => x.key === field)?.label || field;
 }
 
 // 入力表の値を項目の値にする（読み替え values を当て、選択肢にあるか確かめる）。返す形：{ value, ok }
