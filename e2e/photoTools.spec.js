@@ -67,6 +67,15 @@ test('貼る写真を選ぶとき、選んでいる木の入力内容とカル�
   const l = await page.locator('[data-testid=kp-tree-1]').boundingBox();
   const r = await info.boundingBox();
   expect(r.x).toBeGreaterThan(l.x + l.width - 1);
+  // 木の一覧を途中までスクロールしても、上の帯の下に見えている（上の帯に隠れない）・下のタブにも重ならない
+  await page.setViewportSize({ width: 1280, height: 520 });
+  await page.evaluate(() => window.scrollTo(0, document.querySelector('[data-testid=kp-tree-1]').getBoundingClientRect().top + window.scrollY - 60));
+  await page.waitForTimeout(200);
+  const top = await page.locator('.top').boundingBox();
+  const r2 = await info.boundingBox();
+  expect(r2.y).toBeGreaterThanOrEqual(top.y + top.height - 1);
+  expect(r2.y + r2.height).toBeLessThanOrEqual((await page.locator('.tabs').boundingBox()).y + 1);
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   // カルテの形でも見られる
   await page.click('[data-testid=kp-info-karte]');
