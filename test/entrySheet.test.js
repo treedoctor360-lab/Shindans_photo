@@ -222,6 +222,11 @@ describe('入力表の読み込み', () => {
     expect(entryIssues(rr2.state.trees[1], cfg2)).toEqual([]);
     // もう一度押しても変わらない
     expect(rereadEntry(rr2.state, cfg2, 7000).changes).toEqual([]);
+    // 読めた内容の項目は呼び名で見せる（追加で入れる項目も。項目の名前そのものを出さない）
+    const detail = cfgJson.details[0];
+    const cfg3 = { ...cfg2, entrySheet: { ...cfg2.entrySheet, remarks: [{ re: 'ふしぎ', set: { [detail.field]: '架空の値' } }] } };
+    const rr3 = rereadEntry(r.state, cfg3, 8000);
+    expect(rr3.changes.find((c) => c.treeNo === '3').read).toEqual([`${detail.label}：架空の値`]);
   });
 
   it('路線名のないシートは読み込まず、知らせる', async () => {

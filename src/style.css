@@ -485,7 +485,8 @@ fieldset.form-body:disabled button:not(.seg-b):not(.chip){opacity:.3}
 /* 広い画面：左に木の一覧、右に情報（スクロールしても見える） */
 @media (min-width: 900px){
   .kp-split.with-info{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}
-  .kp-split.with-info .kp-info{position:sticky;top:8px;height:calc(100vh - var(--kp-tabs-h,48px) - 24px);height:calc(100dvh - var(--kp-tabs-h,48px) - 24px)}
+  /* 上の帯（--top-h）の下に止める。上の帯に隠れないように */
+  .kp-split.with-info .kp-info{position:sticky;top:calc(var(--top-h,64px) + 8px);height:calc(100vh - var(--top-h,64px) - var(--kp-tabs-h,48px) - 24px);height:calc(100dvh - var(--top-h,64px) - var(--kp-tabs-h,48px) - 24px)}
 }
 /* 狭い画面：画面の下半分に重ねて出し、その分だけ一覧の下を空ける */
 @media (max-width: 899.98px){
