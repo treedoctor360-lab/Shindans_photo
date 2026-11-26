@@ -12,6 +12,8 @@ import WorkspaceSection from './WorkspaceSection.jsx';
 import { applyLedger, loadConfigText, importInitialBook, readKarteTemplateFile, readLedgerFile, saveTemplate } from '../store/state.js';
 import { karteConfs } from '../excel/karteExport.js';
 import PrevSection from './PrevSection.jsx';
+import KarteImportBox from './KarteImportBox.jsx';
+import { simpleKarteSheetSpec } from '../core/karteImport.js';
 import { diagnosticDump } from '../store/diagnose.js';
 import { APP_VERSION, BUILD_TIME } from '../version.js';
 import ServerSection from './ServerSection.jsx';
@@ -254,6 +256,8 @@ export default function SettingsView({ state, update, config, setConfig, toast, 
         </div>
         <FileButton label="野帳の原本（Excel）を読み込む" accept=".xlsx" onFile={onTemplate} testId="template-file" />
       </div>
+
+      {config?.addGroups && simpleKarteSheetSpec(config) && (state.user?.role || 'surveyor') === 'surveyor' && <KarteImportBox state={state} update={update} cfg={config} toast={toast} />}
 
       {config?.entrySheet && (state.user?.role || 'surveyor') === 'surveyor' && (
         <div className="sec" data-testid="entry-sheet-sec">

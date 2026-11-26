@@ -5,7 +5,7 @@ import zlib from 'node:zlib';
 import { makeSimpleKarteTemplate, simpleKarteConfig } from '../test/helpers/makeSimpleKarte.js';
 
 // 1色で塗った PNG を作る（写真の代わり）
-function png(w, h, [r, g, b]) {
+export function png(w, h, [r, g, b]) {
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
     for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;

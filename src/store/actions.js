@@ -10,6 +10,7 @@ import { photoPlan } from '../core/photo.js';
 import { placeAdded } from './order.js';
 import { afterSameGroup, simpleKey } from './surveys.js';
 import { importEntrySheets } from '../core/entrySheet.js';
+import { importKarteSheets } from '../core/karteImport.js';
 
 // 表示中のまとまりの木
 export const currentGroupTrees = (state, cfg) => treesOfGroup(state.trees, state.group, cfg);
@@ -261,6 +262,10 @@ export function placeByNumber(trees, cfg, t, now) {
   const at = trees.indexOf(next);
   return linkFirst([...trees.slice(0, at), t, ...trees.slice(at)], cfg, t, next, now);
 }
+
+// 記入済みのカルテ（Excel）を読み込み、木を番号の順の位置に入れる（src/core/karteImport.js。設定の画面から）
+export const importKarte = (state, cfg, read, info, { file = '', now = Date.now() } = {}) =>
+  importKarteSheets(state, cfg, read, info, { file, now, place: (trees, t) => placeByNumber(trees, cfg, t, now) });
 
 // 入力表（Excel）を読み込み、木を番号の順の位置に入れる（src/core/entrySheet.js。設定の画面から）
 export const importEntry = (state, cfg, sheets, now = Date.now()) =>

@@ -70,6 +70,8 @@ export function simpleKarteRecord(tree, cfg) {
   const r = locked ? null : branchRatioRaw(tree);
   rec['@branchRatio'] = r == null ? '' : round2(r);
   rec['@dateSerial'] = excelDate(tree.date);
+  // 記入済みカルテから読み込んだ木：木の入力から作り直せない計算の値（例 枝長/枝径の倍率）は、読み込んだ値を書く（src/core/karteImport.js）
+  for (const [k, v] of Object.entries(tree.karteKeep || {})) if (rec[k] === '' || rec[k] == null) rec[k] = v;
 
   const ms = isMeasuresV2(tree) ? (tree.measures || []).filter((m) => m && m.kind) : [];
   const linked = new Set();
